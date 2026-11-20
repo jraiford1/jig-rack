@@ -1,5 +1,7 @@
 # Jig Rack
 
+<img src="docs/jigrack-icon.png" alt="The Jig Rack icon: a pegboard with a wrench and a screwdriver" width="64" align="right">
+
 A rack of small, purpose-built Windows tools ("jigs") in one notification-area app.
 
 In a workshop, a jig is a simple fixture you build for one job so you can do it quickly and the same way every
@@ -66,7 +68,8 @@ Two rules can share a corner (say, show the desktop after 1 s and lock after 5 s
 
 ## Tray menu and settings
 
-Right-click the icon for **Settings…** and **Exit** (double-clicking the icon opens Settings too).
+The tray icon is the Jig Rack icon (a workshop pegboard with a wrench and a screwdriver), or the mouse battery
+meter if you've chosen to show it. Right-click it for **Settings…** and **Exit** (double-clicking the icon opens Settings too).
 
 **Settings** opens a window with a tab for each jig. Every change is saved and takes effect at once; there's
 nothing to apply and no restart. The settings live in `%APPDATA%\Jig Rack\settings.ini` (UTF-16, written by the
