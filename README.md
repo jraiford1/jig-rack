@@ -11,9 +11,13 @@ background polling it doesn't need, no services, no drivers.
 
 ### Mouse battery
 
-Shows the battery level of a Logitech wireless mouse on a LIGHTSPEED receiver, without G HUB.
+Shows the battery level of a Logitech wireless mouse, without G HUB: one on a Logitech receiver (LIGHTSPEED,
+Unifying, Bolt) or plugged in by its cable.
 
-The tray icon is a small mouse above a horizontal battery with the percentage in it:
+Choose it in **Settings → Mouse**: set **Mouse type** to Logitech and pick the mouse from the list of the ones
+found, with their battery level. A mouse that's asleep doesn't answer, so move it and click **Refresh** if it
+isn't listed. With **Show the mouse battery meter in place of the Jig Rack icon** ticked, the tray icon becomes a
+small mouse above a horizontal battery with the percentage in it:
 
 | Colour | Meaning |
 |---|---|
@@ -23,9 +27,13 @@ The tray icon is a small mouse above a horizontal battery with the percentage in
 | Green | Above 50% |
 | Grey `?` | No reading yet (receiver unplugged, mouse asleep or off) |
 
-Hover for the details (for example "Mouse battery 63% - charging"). A monitor thread keeps the receiver open, so
-the mouse's own battery events show up at once; a backstop check (one 20-byte request and its reply) runs every
-5 s. If the receiver is unplugged it retries every 15 s.
+Hover for the details (for example "Mouse battery 63% - charging"). With no mouse chosen, or the meter turned off,
+the tray shows the Jig Rack icon instead.
+
+A monitor thread keeps the chosen mouse's receiver open, so the mouse's own battery events show up at once; a
+backstop check (one 20-byte request and its reply) runs every 5 s. If the receiver is unplugged it retries every
+15 s. With no mouse chosen it does nothing at all. The mouse is remembered by its receiver (USB product ID) and its
+slot on it, so it's found again even while it's asleep.
 
 ### Hot corner
 
@@ -96,6 +104,7 @@ ran) `HKCU\Software\JigRack`.
 | `JigRack.exe --preview <folder>` | Writes the tray icons as PNGs and exits. |
 | `JigRack.exe --demo-countdown` | Shows the countdown at the first rule's corner, without any action. |
 | `JigRack.exe --snap-settings <folder>` | Opens the Settings window off-screen and saves each tab as a PNG. |
+| `JigRack.exe --devices <log file>` | Lists the Logitech mice found (receiver, slot, name, type, battery) in the log. |
 | `JigRack.exe --exit` | Closes the running copy cleanly. |
 | `JigRack.exe --write-ico <file>` | Writes the Jig Rack icon as a multi-size `.ico`. |
 | `--settings <file>` | With any of the above (or none): use that settings file instead of the one in `%APPDATA%`. |
@@ -121,6 +130,9 @@ The battery jig talks to the receiver directly, read-only, with Logitech's HID++
   1. **UNIFIED_BATTERY `0x1004`** — percentage and charging state (newer mice).
   2. **BATTERY_STATUS `0x1000`** — percentage and charging state (older mice).
   3. **BATTERY_VOLTAGE `0x1001`** — voltage only; the percentage is estimated and the tooltip shows it with `~`.
+- The list of mice comes from pinging each slot (1–6) on each receiver, and `0xFF` for a mouse on its cable, then
+  asking **DEVICE_NAME `0x0005`** for its name and type; only mice, trackballs and touchpads with a battery feature
+  are listed. The search uses its own HID++ software ID, so its replies are never mistaken for the monitor's.
 - The mouse also sends battery events on its own (function 0 of the battery feature), and the receiver sends a
   connection notification (`10 <device> 41 …`) when the mouse connects or drops; both are handled as they arrive.
 
