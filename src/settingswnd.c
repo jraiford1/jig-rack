@@ -13,7 +13,8 @@ enum { PAGE_MOUSE, PAGE_CORNERS, PAGES };
 static HINSTANCE g_inst;
 static HWND g_dlg, g_tab, g_pages[PAGES];
 static DeviceList g_devs;
-static BOOL g_searching, g_searched;
+static BOOL g_searching;
+static int g_searchedType = -1;              /* the type g_devs lists; -1 = none yet */
 static MonitorDesc g_mons[16];
 static int g_nmons;
 static int g_rule = -1;                     /* selected hot corner rule */
@@ -44,11 +45,12 @@ static void mouse_fill_list(HWND pg)
         else swprintf_s(t, 200, L"%s   (%s)", d->name, d->via);
         int idx = (int)SendMessageW(lb, LB_ADDSTRING, 0, (LPARAM)t);
         SendMessageW(lb, LB_SETITEMDATA, idx, i);
-        if (d->productId == g_set.productId && d->index == g_set.deviceIndex) sel = idx;
+        if (g_set.mouseType == MOUSE_BLUETOOTH ? _wcsicmp(d->id, g_set.deviceId) == 0
+                                               : d->productId == g_set.productId && d->index == g_set.deviceIndex) sel = idx;
     }
-    if (sel < 0 && g_set.productId) {                        /* the chosen mouse, asleep or unplugged */
+    if (sel < 0 && mouse_chosen(&g_set)) {                   /* the chosen mouse, asleep, off or unplugged */
         wchar_t t[200];
-        swprintf_s(t, 200, L"%s   (not found right now)", g_set.deviceName[0] ? g_set.deviceName : L"Logitech mouse");
+        swprintf_s(t, 200, L"%s   (not found right now)", g_set.deviceName[0] ? g_set.deviceName : L"The chosen mouse");
         sel = (int)SendMessageW(lb, LB_ADDSTRING, 0, (LPARAM)t);
         SendMessageW(lb, LB_SETITEMDATA, sel, (LPARAM)-1);
     }
@@ -57,34 +59,41 @@ static void mouse_fill_list(HWND pg)
 
 static void mouse_enable(HWND pg)
 {
-    BOOL logi = g_set.mouseType == MOUSE_LOGITECH;
-    EnableWindow(GetDlgItem(pg, IDC_MOUSE_LISTLABEL), logi);
-    EnableWindow(GetDlgItem(pg, IDC_MOUSE_LIST), logi);
-    EnableWindow(GetDlgItem(pg, IDC_MOUSE_STATUS), logi);
-    EnableWindow(GetDlgItem(pg, IDC_MOUSE_REFRESH), logi && !g_searching);
-    EnableWindow(GetDlgItem(pg, IDC_MOUSE_METER), logi && g_set.productId);
+    BOOL on = g_set.mouseType != MOUSE_NONE;
+    EnableWindow(GetDlgItem(pg, IDC_MOUSE_LISTLABEL), on);
+    EnableWindow(GetDlgItem(pg, IDC_MOUSE_LIST), on);
+    EnableWindow(GetDlgItem(pg, IDC_MOUSE_STATUS), on);
+    EnableWindow(GetDlgItem(pg, IDC_MOUSE_REFRESH), on && !g_searching);
+    EnableWindow(GetDlgItem(pg, IDC_MOUSE_METER), mouse_chosen(&g_set));
 }
 
 static void mouse_search_start(HWND pg)
 {
-    if (g_searching) return;
+    if (g_searching || g_set.mouseType == MOUSE_NONE) return;
     g_searching = TRUE;
-    SetDlgItemTextW(pg, IDC_MOUSE_STATUS, L"Looking for Logitech mice\x2026");
+    SetDlgItemTextW(pg, IDC_MOUSE_STATUS, g_set.mouseType == MOUSE_BLUETOOTH ? L"Looking for Bluetooth devices\x2026"
+                                                                             : L"Looking for Logitech mice\x2026");
     mouse_enable(pg);
-    mouse_search(g_dlg);
+    mouse_search(g_dlg, g_set.mouseType);
 }
 
-static void mouse_search_done(DeviceList *l)
+static void mouse_search_done(DeviceList *l, int type)
 {
-    g_devs = *l;
     g_searching = FALSE;
-    g_searched = TRUE;
     HWND pg = g_pages[PAGE_MOUSE];
     if (!pg) return;
+    if (type != g_set.mouseType) { mouse_search_start(pg); return; }   /* the type changed meanwhile */
+    g_devs = *l;
+    g_searchedType = type;
     mouse_fill_list(pg);
-    SetDlgItemTextW(pg, IDC_MOUSE_STATUS, g_devs.count
-        ? L"Not listed? Move that mouse to wake it, then click Refresh."
-        : L"No Logitech mouse found. Move the mouse to wake it (or plug in its receiver), then click Refresh.");
+    if (type == MOUSE_BLUETOOTH)
+        SetDlgItemTextW(pg, IDC_MOUSE_STATUS, g_devs.count
+            ? L"Levels come from Windows, which updates them every few minutes."
+            : L"No Bluetooth device reporting a battery level. Pair it in Windows Settings, then click Refresh.");
+    else
+        SetDlgItemTextW(pg, IDC_MOUSE_STATUS, g_devs.count
+            ? L"Not listed? Move that mouse to wake it, then click Refresh."
+            : L"No Logitech mouse found. Move the mouse to wake it (or plug in its receiver), then click Refresh.");
     mouse_enable(pg);
 }
 
@@ -97,13 +106,14 @@ static INT_PTR CALLBACK mouse_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         HWND cb = GetDlgItem(h, IDC_MOUSE_TYPE);
         SendMessageW(cb, CB_ADDSTRING, 0, (LPARAM)L"None");
         SendMessageW(cb, CB_ADDSTRING, 0, (LPARAM)L"Logitech (receiver or cable)");
+        SendMessageW(cb, CB_ADDSTRING, 0, (LPARAM)L"Bluetooth (battery level from Windows)");
         SendMessageW(cb, CB_SETCURSEL, g_set.mouseType, 0);
         CheckDlgButton(h, IDC_MOUSE_METER, g_set.showMeter ? BST_CHECKED : BST_UNCHECKED);
         mouse_fill_list(h);
         g_filling = FALSE;
         g_pages[PAGE_MOUSE] = h;
         mouse_enable(h);
-        if (g_set.mouseType == MOUSE_LOGITECH) mouse_search_start(h);
+        mouse_search_start(h);
         return TRUE;
     }
     case WM_COMMAND:
@@ -113,8 +123,13 @@ static INT_PTR CALLBACK mouse_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             if (HIWORD(wp) == CBN_SELCHANGE) {
                 g_set.mouseType = (int)SendDlgItemMessageW(h, IDC_MOUSE_TYPE, CB_GETCURSEL, 0, 0);
                 save_and_apply(APPLY_MOUSE);
+                if (g_searchedType != g_set.mouseType) {     /* list only that type's devices */
+                    g_devs.count = 0;
+                    mouse_fill_list(h);
+                    SetDlgItemTextW(h, IDC_MOUSE_STATUS, L"");
+                    mouse_search_start(h);
+                }
                 mouse_enable(h);
-                if (g_set.mouseType == MOUSE_LOGITECH && !g_searched) mouse_search_start(h);
             }
             return TRUE;
         case IDC_MOUSE_LIST:
@@ -122,8 +137,12 @@ static INT_PTR CALLBACK mouse_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
                 int idx = (int)SendDlgItemMessageW(h, IDC_MOUSE_LIST, LB_GETCURSEL, 0, 0);
                 int i = idx < 0 ? -1 : (int)SendDlgItemMessageW(h, IDC_MOUSE_LIST, LB_GETITEMDATA, idx, 0);
                 if (i >= 0 && i < g_devs.count) {
-                    g_set.productId = g_devs.d[i].productId;
-                    g_set.deviceIndex = g_devs.d[i].index;
+                    if (g_set.mouseType == MOUSE_BLUETOOTH) {
+                        wcscpy_s(g_set.deviceId, 200, g_devs.d[i].id);
+                    } else {
+                        g_set.productId = g_devs.d[i].productId;
+                        g_set.deviceIndex = g_devs.d[i].index;
+                    }
                     wcscpy_s(g_set.deviceName, 64, g_devs.d[i].name);
                     save_and_apply(APPLY_MOUSE);
                     mouse_enable(h);
@@ -402,7 +421,7 @@ static INT_PTR CALLBACK main_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     }
     case WM_DEVICES: {
         DeviceList *l = (DeviceList *)lp;
-        mouse_search_done(l);
+        mouse_search_done(l, (int)wp);
         HeapFree(GetProcessHeap(), 0, l);
         return TRUE;
     }
@@ -425,7 +444,8 @@ static INT_PTR CALLBACK main_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         if (little) DestroyIcon(little);
         g_dlg = g_tab = NULL;
         for (int k = 0; k < PAGES; k++) g_pages[k] = NULL;
-        g_searched = g_searching = FALSE;
+        g_searching = FALSE;
+        g_searchedType = -1;
         return FALSE;
     }
     }

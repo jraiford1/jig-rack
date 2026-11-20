@@ -13,12 +13,16 @@ background polling it doesn't need, no services, no drivers.
 
 ### Mouse battery
 
-Shows the battery level of a Logitech wireless mouse, without G HUB: one on a Logitech receiver (LIGHTSPEED,
-Unifying, Bolt) or plugged in by its cable.
+Shows the battery level of a wireless mouse in the tray:
 
-Choose it in **Settings → Mouse**: set **Mouse type** to Logitech and pick the mouse from the list of the ones
-found, with their battery level. A mouse that's asleep doesn't answer, so move it and click **Refresh** if it
-isn't listed. With **Show the mouse battery meter in place of the Jig Rack icon** ticked, the tray icon becomes a
+- **Logitech**, without G HUB: a mouse on a Logitech receiver (LIGHTSPEED, Unifying, Bolt) or plugged in by its
+  cable, read directly over HID++.
+- **Bluetooth**: any paired Bluetooth device that reports its battery to Windows (the level Settings → Bluetooth &
+  devices shows).
+
+Choose it in **Settings → Mouse**: set **Mouse type**, then pick the mouse from the list of the ones found, with
+their battery level. A Logitech mouse that's asleep doesn't answer, so move it and click **Refresh** if it isn't
+listed. With **Show the mouse battery meter in place of the Jig Rack icon** ticked, the tray icon becomes a
 small mouse above a horizontal battery with the percentage in it:
 
 | Colour | Meaning |
@@ -36,6 +40,10 @@ A monitor thread keeps the chosen mouse's receiver open, so the mouse's own batt
 backstop check (one 20-byte request and its reply) runs every 5 s. If the receiver is unplugged it retries every
 15 s. With no mouse chosen it does nothing at all. The mouse is remembered by its receiver (USB product ID) and its
 slot on it, so it's found again even while it's asleep.
+
+For a Bluetooth mouse, Windows does the reading: it keeps each paired device's battery level as a device property
+(`{104EA319-6EE2-4701-BD47-8DDBF425BBE5} 2`), which Jig Rack reads with the configuration manager once a minute
+(Windows sends no notice when it changes). There's no charging state, so the meter's colour follows the level only.
 
 ### Hot corners
 
@@ -97,7 +105,8 @@ builds again.
 | `src\main.c` | Start-up, the tray icon and menu, the log, the command-line diagnostics |
 | `src\settings.c` | Reading and writing `settings.ini` |
 | `src\settingswnd.c` | The Settings window |
-| `src\mouse.c` | The mouse battery jig (HID++) |
+| `src\mouse.c` | The mouse battery jig (HID++, and the monitor thread) |
+| `src\bluetooth.c` | Bluetooth battery levels from Windows |
 | `src\hotcorner.c` | The hot corner jig, its countdown and its self-test |
 | `src\icons.c` | The tray icons (GDI+), previews and the `.ico` |
 
@@ -122,7 +131,7 @@ ran) `HKCU\Software\JigRack`.
 | `JigRack.exe --preview <folder>` | Writes the tray icons as PNGs and exits. |
 | `JigRack.exe --demo-countdown` | Shows the countdown at the first rule's corner, without any action. |
 | `JigRack.exe --snap-settings <folder>` | Opens the Settings window off-screen and saves each tab as a PNG. |
-| `JigRack.exe --devices <log file>` | Lists the Logitech mice found (receiver, slot, name, type, battery) in the log. |
+| `JigRack.exe --devices <log file>` | Lists the Logitech mice (receiver, slot, name, type, battery) and the Bluetooth devices reporting a battery level, in the log. |
 | `JigRack.exe --exit` | Closes the running copy cleanly. |
 | `JigRack.exe --write-ico <file>` | Writes the Jig Rack icon as a multi-size `.ico`. |
 | `--settings <file>` | With any of the above (or none): use that settings file instead of the one in `%APPDATA%`. |

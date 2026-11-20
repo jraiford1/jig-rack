@@ -588,6 +588,21 @@ static void test_settings_file(void)
     settings_save(&a);
     settings_load(&b);
     EXPECT(b.ruleCount == 1 && memcmp(&a.rules[0], &b.rules[0], sizeof(Rule)) == 0, "settings file: removing rules");
+    Settings c;
+    settings_defaults(&c);
+    c.mouseType = MOUSE_BLUETOOTH;
+    wcscpy_s(c.deviceId, 200, L"BTHLE\\DEV_A1B2C3D4E5F6\\7&1234ABCD&0&A1B2C3D4E5F6");
+    wcscpy_s(c.deviceName, 64, L"MX Anywhere 3S");
+    settings_save(&c);
+    settings_load(&b);
+    EXPECT(b.mouseType == MOUSE_BLUETOOTH && wcscmp(b.deviceId, c.deviceId) == 0 && mouse_chosen(&b),
+           "settings file: a Bluetooth mouse");
+    DeviceList bt;
+    int nbt = bt_list_devices(&bt), agree = 0;
+    for (int i = 0; i < nbt; i++) agree += bt_battery(bt.d[i].id) == bt.d[i].percent;
+    char line[120];
+    sprintf_s(line, sizeof line, "Bluetooth: %d device(s) reporting a battery level, %d read back the same", nbt, agree);
+    EXPECT(agree == nbt, line);
     DeleteFileW(tmp);
     settings_load(&b);
     EXPECT(b.mouseType == MOUSE_NONE && b.ruleCount == 1 && b.rules[0].corner == CORNER_TR &&

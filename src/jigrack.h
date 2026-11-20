@@ -20,7 +20,7 @@ void trace(const char *fmt, ...);
 extern HANDLE g_log;
 
 /* ---------------------------------------------------------------- settings (settings.c) ----------------------- */
-enum { MOUSE_NONE, MOUSE_LOGITECH, MOUSE_TYPES };
+enum { MOUSE_NONE, MOUSE_LOGITECH, MOUSE_BLUETOOTH, MOUSE_TYPES };
 enum { CORNER_TL, CORNER_TR, CORNER_BL, CORNER_BR, CORNERS };
 enum { WHERE_WORKSPACE, WHERE_ANY, WHERE_MONITOR };
 enum { ACT_LOCK, ACT_SLEEP, ACT_SCREENS_OFF, ACT_SHOW_DESKTOP, ACT_TASK_VIEW, ACT_RUN, ACTIONS };
@@ -42,12 +42,14 @@ typedef struct {
     WORD productId;             /* Logitech: USB product ID of the receiver (or wired mouse) the mouse is on; 0 = none */
     int deviceIndex;            /* its HID++ device index there: 1..6 on a receiver, 255 wired */
     wchar_t deviceName[64];     /* for display */
+    wchar_t deviceId[200];      /* Bluetooth: the device node that reports the battery (PnP instance ID) */
     int showMeter;              /* tray shows the battery meter instead of the Jig Rack icon */
     int ruleCount;
     Rule rules[MAX_RULES];
 } Settings;
 
 extern Settings g_set;
+BOOL mouse_chosen(const Settings *s);           /* a mouse of the chosen type is picked */
 void settings_defaults(Settings *s);
 void settings_load(Settings *s);
 BOOL settings_save(const Settings *s);
@@ -74,7 +76,8 @@ typedef struct {
     int type;                   /* HID++ device type: 3 mouse, 4 trackpad, 5 trackball; -1 unknown */
     int percent;                /* -1 if no reading */
     wchar_t name[64];
-    wchar_t via[64];            /* "USB Receiver" (product string of the receiver), or "cable" */
+    wchar_t via[64];            /* "USB Receiver, slot 1", "cable" or "Bluetooth" */
+    wchar_t id[200];            /* Bluetooth: PnP instance ID of the node reporting the battery */
 } FoundDevice;
 
 typedef struct { int count; FoundDevice d[24]; } DeviceList;
@@ -82,8 +85,12 @@ typedef struct { int count; FoundDevice d[24]; } DeviceList;
 void mouse_start(HWND notify);                  /* start the monitor thread; results arrive as WM_RESULT */
 void mouse_apply(void);                         /* g_set's mouse choice changed */
 void mouse_refresh(void);                       /* read the battery now */
-void mouse_search(HWND reply);                  /* find Logitech devices on a worker thread; replies WM_DEVICES */
-int  mouse_list_devices(DeviceList *out);       /* the same search, on the calling thread */
+void mouse_search(HWND reply, int type);        /* find mice of a type on a worker thread; replies WM_DEVICES */
+int  mouse_list_devices(DeviceList *out);       /* Logitech search, on the calling thread */
+
+/* ---------------------------------------------------------------- Bluetooth (bluetooth.c) -------------------- */
+int  bt_list_devices(DeviceList *out);          /* paired Bluetooth devices that report a battery level */
+int  bt_battery(const wchar_t *id);             /* battery % of that device node, or -1 */
 
 /* ---------------------------------------------------------------- icons (icons.c) ---------------------------- */
 HICON icon_meter(const Battery *b);             /* the battery meter for the tray */

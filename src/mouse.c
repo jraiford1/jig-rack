@@ -18,6 +18,7 @@
 
 #define CHECK_MS    5000        /* backstop check; changes normally arrive as events */
 #define REOPEN_MS   15000       /* retry while the receiver is unplugged */
+#define BT_POLL_MS  60000       /* Bluetooth: Windows gives no change notification; the level moves slowly */
 #define SW_MONITOR  0x0A        /* HID++ software IDs: who sent a request */
 #define SW_SEARCH   0x0B
 
@@ -173,7 +174,7 @@ static void parse(BYTE kind, const BYTE *r, Battery *b)
 
 /* ---------------------------------------------------------------- monitor thread ------------------------------ */
 
-typedef struct { int type; WORD pid; BYTE index; } Choice;
+typedef struct { int type; WORD pid; BYTE index; wchar_t id[200]; } Choice;
 
 static CRITICAL_SECTION g_choiceLock;
 static Choice g_choice;                     /* written by the UI thread (mouse_apply) */
@@ -269,6 +270,22 @@ static DWORD WINAPI monitor(LPVOID unused)
             g_checkAt = 0;
             ZeroMemory(&g_last, sizeof g_last);
             if (c.type == MOUSE_LOGITECH && c.pid) trace("mouse: receiver %04X, device %d", c.pid, c.index);
+            if (c.type == MOUSE_BLUETOOTH && c.id[0]) trace("mouse: Bluetooth %ls", c.id);
+        }
+        if (g_cur.type == MOUSE_BLUETOOTH && g_cur.id[0]) {   /* read what Windows last heard, once a minute */
+            InterlockedExchange(&g_force, 0);
+            int pct = bt_battery(g_cur.id);
+            if (pct >= 0) {
+                Battery b = {0};
+                b.ok = 1;
+                b.percent = pct;
+                wcscpy_s(b.state, 32, L"Bluetooth");
+                reading(&b, "bluetooth");
+            } else {
+                unreachable(L"not connected", "bluetooth");
+            }
+            WaitForSingleObject(g_wake, BT_POLL_MS);
+            continue;
         }
         if (g_cur.type != MOUSE_LOGITECH || !g_cur.pid) {
             Battery b = {0};
@@ -330,6 +347,8 @@ void mouse_apply(void)
     g_choice.type = g_set.mouseType;
     g_choice.pid = g_set.productId;
     g_choice.index = (BYTE)g_set.deviceIndex;
+    ZeroMemory(g_choice.id, sizeof g_choice.id);
+    wcscpy_s(g_choice.id, 200, g_set.deviceId);
     LeaveCriticalSection(&g_choiceLock);
     if (g_wake) SetEvent(g_wake);
 }
@@ -389,7 +408,7 @@ int mouse_list_devices(DeviceList *out)
         HidD_GetProductString(h, product, sizeof product);
         for (int k = 0; k < (int)sizeof devs && out->count < (int)(sizeof out->d / sizeof out->d[0]); k++) {
             BYTE dev = devs[k], r[20];
-            if (!hidpp_call(h, SW_SEARCH, dev, 0x00, 1, NULL, 0, r, 1000, NULL) || r[4] < 2) continue;  /* HID++ 2.0? */
+            if (!hidpp_call(h, SW_SEARCH, dev, 0x00, 1, NULL, 0, r, 400, NULL) || r[4] < 2) continue;  /* HID++ 2.0? (an empty slot may never answer) */
             FoundDevice *d = &out->d[out->count];
             ZeroMemory(d, sizeof *d);
             d->productId = ch[c].pid;
@@ -419,18 +438,26 @@ int mouse_list_devices(DeviceList *out)
     return out->count;
 }
 
+typedef struct { HWND reply; int type; } SearchJob;
+
 static DWORD WINAPI search_thread(LPVOID p)
 {
-    HWND reply = (HWND)p;
+    SearchJob job = *(SearchJob *)p;
+    HeapFree(GetProcessHeap(), 0, p);
     DeviceList *l = (DeviceList *)HeapAlloc(GetProcessHeap(), 0, sizeof *l);
     if (!l) return 0;
-    mouse_list_devices(l);
-    if (!IsWindow(reply) || !PostMessageW(reply, WM_DEVICES, 0, (LPARAM)l)) HeapFree(GetProcessHeap(), 0, l);
+    if (job.type == MOUSE_BLUETOOTH) bt_list_devices(l); else mouse_list_devices(l);
+    if (!IsWindow(job.reply) || !PostMessageW(job.reply, WM_DEVICES, job.type, (LPARAM)l)) HeapFree(GetProcessHeap(), 0, l);
     return 0;
 }
 
-void mouse_search(HWND reply)
+/* The reply's wParam is the type searched, so a late answer for another type can be told apart. */
+void mouse_search(HWND reply, int type)
 {
-    HANDLE t = CreateThread(NULL, 0, search_thread, reply, 0, NULL);
-    if (t) CloseHandle(t);
+    SearchJob *job = (SearchJob *)HeapAlloc(GetProcessHeap(), 0, sizeof *job);
+    if (!job) return;
+    job->reply = reply;
+    job->type = type;
+    HANDLE t = CreateThread(NULL, 0, search_thread, job, 0, NULL);
+    if (t) CloseHandle(t); else HeapFree(GetProcessHeap(), 0, job);
 }
