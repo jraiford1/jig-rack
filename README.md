@@ -35,19 +35,34 @@ backstop check (one 20-byte request and its reply) runs every 5 s. If the receiv
 15 s. With no mouse chosen it does nothing at all. The mouse is remembered by its receiver (USB product ID) and its
 slot on it, so it's found again even while it's asleep.
 
-### Hot corner
+### Hot corners
 
-Rest the cursor in the **top-right corner of the whole monitor set** for 5 s and the PC locks
-(`LockWorkStation`).
+Rest the cursor in a screen corner and something happens: lock the PC, sleep, turn off the screens, show the
+desktop, open Task View, or run a command. Out of the box, resting 5 s in the **top-right of the workspace** locks
+the PC.
 
-- "Top-right" means the corner of the monitor that reaches furthest right (the highest one if two tie), not the
-  corner of every monitor. It's recalculated when the display layout changes, and every 5 s as a backstop.
+Set it up in **Settings → Hot Corners**: a list of rules, with **+** and **-** to add and remove them. Each rule
+picks:
+
+- **Corner**: top-left, top-right, bottom-left or bottom-right.
+- **Where**: the whole workspace (all monitors together), any monitor, or one particular monitor.
+  - "The workspace's top-right" is the top-right corner of the monitor that reaches furthest right (the highest one
+    if two tie), so the corners between monitors don't count. The other three work the same way.
+  - "Any monitor" is that corner of every monitor.
+  - A particular monitor is remembered by its display device path, so it's the same screen after docking or
+    rearranging; while it isn't connected the rule does nothing.
+- **Action**, and for "Run a command" the command (a program with its arguments, a document or a URL).
+- **Delay**: how long the cursor has to rest there, in seconds (decimals are fine).
+- **Show the countdown**: a white, black-outlined countdown next to the corner, from 0.5 s in. It's a layered,
+  click-through window that never takes focus.
+
+Two rules can share a corner (say, show the desktop after 1 s and lock after 5 s); each fires at its own time.
+
 - The cursor counts as "in the corner" within 3 px of it. The position is polled every 100 ms with
-  `GetCursorPos`, which also works over elevated windows.
-- From 0.5 s in, a white, black-outlined 5..1 countdown appears next to the corner. It's a layered, click-through
-  window that never takes focus.
-- A click cancels (so a window's close button in that corner still works). After a lock or a cancel, the cursor
-  has to leave the corner before it can fire again, so coming back from the lock screen doesn't lock again.
+  `GetCursorPos` (which also works over elevated windows), and only while there's at least one rule. Corners are
+  recalculated when the display layout changes, and every 5 s as a backstop.
+- A click cancels (so a window's close button in that corner still works). After an action or a cancel, the cursor
+  has to leave the corner before that rule can fire again, so coming back from the lock screen doesn't lock again.
 
 ## Tray menu and settings
 
