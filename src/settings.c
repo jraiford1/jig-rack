@@ -20,7 +20,12 @@ static const wchar_t *WHERE_KEYS[] = { L"workspace", L"any", L"monitor" };
 static const wchar_t *ACTION_KEYS[ACTIONS] = { L"lock", L"sleep", L"screens-off", L"show-desktop", L"task-view", L"run" };
 static const wchar_t *ACTION_NAMES[ACTIONS] = { L"Lock the PC", L"Sleep", L"Turn off the screens", L"Show the desktop",
                                                  L"Task View", L"Run a command" };
-static const wchar_t *MOUSE_KEYS[MOUSE_TYPES] = { L"none", L"logitech" };
+static const wchar_t *MOUSE_KEYS[MOUSE_TYPES] = { L"none", L"logitech", L"bluetooth" };
+
+BOOL mouse_chosen(const Settings *s)
+{
+    return (s->mouseType == MOUSE_LOGITECH && s->productId) || (s->mouseType == MOUSE_BLUETOOTH && s->deviceId[0]);
+}
 
 const wchar_t *corner_label(int c) { return c >= 0 && c < CORNERS ? CORNER_NAMES[c] : L"?"; }
 const wchar_t *action_label(int a) { return a >= 0 && a < ACTIONS ? ACTION_NAMES[a] : L"?"; }
@@ -93,6 +98,7 @@ void settings_load(Settings *s)
     s->productId = (WORD)wcstoul(v, NULL, 16);
     s->deviceIndex = get_int(L"Mouse", L"Index", 1);
     get_str(L"Mouse", L"Name", s->deviceName, 64);
+    get_str(L"Mouse", L"Device", s->deviceId, 200);
     s->showMeter = get_int(L"Mouse", L"ShowMeter", 1) != 0;
 
     int n = get_int(L"HotCorners", L"Count", 0);
@@ -160,6 +166,7 @@ BOOL settings_save(const Settings *s)
     ok &= put(L"Mouse", L"Product", v);
     ok &= put_int(L"Mouse", L"Index", s->deviceIndex);
     ok &= put(L"Mouse", L"Name", s->deviceName);
+    ok &= put(L"Mouse", L"Device", s->deviceId);
     ok &= put_int(L"Mouse", L"ShowMeter", s->showMeter);
     ok &= put_int(L"HotCorners", L"Count", s->ruleCount);
     for (int i = 0; i < MAX_RULES; i++) {

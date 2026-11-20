@@ -61,7 +61,7 @@ static Battery g_shown = { 0, 0, 0, 0, 0, L"reading\x2026" };   /* the last read
 void tray_refresh(void)
 {
     if (!g_nid.cbSize) return;
-    BOOL chosen = g_set.mouseType == MOUSE_LOGITECH && g_set.productId;
+    BOOL chosen = mouse_chosen(&g_set);
     HICON icon = chosen && g_set.showMeter ? icon_meter(&g_shown) : icon_app(0);
     wchar_t tip[128];
     const Battery *b = &g_shown;
@@ -188,6 +188,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show_cmd)
         open_log(v);
         DeviceList l;
         trace("found %d Logitech mouse/mice", mouse_list_devices(&l));
+        trace("found %d Bluetooth device(s) reporting a battery level", bt_list_devices(&l));
         CloseHandle(g_log);
         return 0;
     }
