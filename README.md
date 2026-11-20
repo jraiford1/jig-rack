@@ -1,5 +1,7 @@
 # Jig Rack
 
+<img src="docs/jigrack-icon.png" alt="The Jig Rack icon: a pegboard with a wrench and a screwdriver" width="64" align="right">
+
 A rack of small, purpose-built Windows tools ("jigs") in one notification-area app.
 
 In a workshop, a jig is a simple fixture you build for one job so you can do it quickly and the same way every
@@ -11,9 +13,13 @@ background polling it doesn't need, no services, no drivers.
 
 ### Mouse battery
 
-Shows the battery level of a Logitech wireless mouse on a LIGHTSPEED receiver, without G HUB.
+Shows the battery level of a Logitech wireless mouse, without G HUB: one on a Logitech receiver (LIGHTSPEED,
+Unifying, Bolt) or plugged in by its cable.
 
-The tray icon is a small mouse above a horizontal battery with the percentage in it:
+Choose it in **Settings → Mouse**: set **Mouse type** to Logitech and pick the mouse from the list of the ones
+found, with their battery level. A mouse that's asleep doesn't answer, so move it and click **Refresh** if it
+isn't listed. With **Show the mouse battery meter in place of the Jig Rack icon** ticked, the tray icon becomes a
+small mouse above a horizontal battery with the percentage in it:
 
 | Colour | Meaning |
 |---|---|
@@ -23,32 +29,52 @@ The tray icon is a small mouse above a horizontal battery with the percentage in
 | Green | Above 50% |
 | Grey `?` | No reading yet (receiver unplugged, mouse asleep or off) |
 
-Hover for the details (for example "Mouse battery 63% - charging"). A monitor thread keeps the receiver open, so
-the mouse's own battery events show up at once; a backstop check (one 20-byte request and its reply) runs every
-5 s. If the receiver is unplugged it retries every 15 s.
+Hover for the details (for example "Mouse battery 63% - charging"). With no mouse chosen, or the meter turned off,
+the tray shows the Jig Rack icon instead.
 
-### Hot corner
+A monitor thread keeps the chosen mouse's receiver open, so the mouse's own battery events show up at once; a
+backstop check (one 20-byte request and its reply) runs every 5 s. If the receiver is unplugged it retries every
+15 s. With no mouse chosen it does nothing at all. The mouse is remembered by its receiver (USB product ID) and its
+slot on it, so it's found again even while it's asleep.
 
-Rest the cursor in the **top-right corner of the whole monitor set** for 5 s and the PC locks
-(`LockWorkStation`).
+### Hot corners
 
-- "Top-right" means the corner of the monitor that reaches furthest right (the highest one if two tie), not the
-  corner of every monitor. It's recalculated when the display layout changes, and every 5 s as a backstop.
+Rest the cursor in a screen corner and something happens: lock the PC, sleep, turn off the screens, show the
+desktop, open Task View, or run a command. Out of the box, resting 5 s in the **top-right of the workspace** locks
+the PC.
+
+Set it up in **Settings → Hot Corners**: a list of rules, with **+** and **-** to add and remove them. Each rule
+picks:
+
+- **Corner**: top-left, top-right, bottom-left or bottom-right.
+- **Where**: the whole workspace (all monitors together), any monitor, or one particular monitor.
+  - "The workspace's top-right" is the top-right corner of the monitor that reaches furthest right (the highest one
+    if two tie), so the corners between monitors don't count. The other three work the same way.
+  - "Any monitor" is that corner of every monitor.
+  - A particular monitor is remembered by its display device path, so it's the same screen after docking or
+    rearranging; while it isn't connected the rule does nothing.
+- **Action**, and for "Run a command" the command (a program with its arguments, a document or a URL).
+- **Delay**: how long the cursor has to rest there, in seconds (decimals are fine).
+- **Show the countdown**: a white, black-outlined countdown next to the corner, from 0.5 s in. It's a layered,
+  click-through window that never takes focus.
+
+Two rules can share a corner (say, show the desktop after 1 s and lock after 5 s); each fires at its own time.
+
 - The cursor counts as "in the corner" within 3 px of it. The position is polled every 100 ms with
-  `GetCursorPos`, which also works over elevated windows.
-- From 0.5 s in, a white, black-outlined 5..1 countdown appears next to the corner. It's a layered, click-through
-  window that never takes focus.
-- A click cancels (so a window's close button in that corner still works). After a lock or a cancel, the cursor
-  has to leave the corner before it can fire again, so coming back from the lock screen doesn't lock again.
+  `GetCursorPos` (which also works over elevated windows), and only while there's at least one rule. Corners are
+  recalculated when the display layout changes, and every 5 s as a backstop.
+- A click cancels (so a window's close button in that corner still works). After an action or a cancel, the cursor
+  has to leave the corner before that rule can fire again, so coming back from the lock screen doesn't lock again.
 
-## Tray menu
+## Tray menu and settings
 
-Right-click the icon:
+The tray icon is the Jig Rack icon (a workshop pegboard with a wrench and a screwdriver), or the mouse battery
+meter if you've chosen to show it. Right-click it for **Settings…** and **Exit** (double-clicking the icon opens Settings too).
 
-- **Refresh mouse battery** — check the battery now.
-- **Hot corner: top-right 5 s locks** — turn the hot corner on or off (on by default). Remembered in
-  `HKCU\Software\JigRack\HotCornerLock`.
-- **Exit**
+**Settings** opens a window with a tab for each jig. Every change is saved and takes effect at once; there's
+nothing to apply and no restart. The settings live in `%APPDATA%\Jig Rack\settings.ini` (UTF-16, written by the
+window). With no settings file, no mouse is chosen and the hot corner is the top-right of the workspace, locking
+after 5 s.
 
 Only one copy runs at a time. If Explorer restarts, the icon comes back on its own.
 
@@ -60,9 +86,20 @@ You need Visual Studio (2022 or later) with the **Desktop development with C++**
 build.cmd
 ```
 
-`build.cmd` finds Visual Studio with `vswhere`, sets up the x64 tools (`vcvars64.bat`), compiles the version
-resource and the single source file, and writes `build\JigRack.exe`. The libraries are linked through
-`#pragma comment(lib, ...)` in the source, so there's no project file.
+`build.cmd` finds Visual Studio with `vswhere`, sets up the x64 tools (`vcvars64.bat`), compiles the resources
+(version, icon, manifest, the Settings dialogs) and `src\*.c`, and writes `build\JigRack.exe`. The libraries are
+linked through `#pragma comment(lib, ...)` in the source, so there's no project file. The app draws its own icon:
+if `src\jigrack.ico` is missing, `build.cmd` builds once without it, has the exe write it (`--write-ico`), and
+builds again.
+
+| Source | What's in it |
+|---|---|
+| `src\main.c` | Start-up, the tray icon and menu, the log, the command-line diagnostics |
+| `src\settings.c` | Reading and writing `settings.ini` |
+| `src\settingswnd.c` | The Settings window |
+| `src\mouse.c` | The mouse battery jig (HID++) |
+| `src\hotcorner.c` | The hot corner jig, its countdown and its self-test |
+| `src\icons.c` | The tray icons (GDI+), previews and the `.ico` |
 
 ## Install
 
@@ -71,19 +108,28 @@ resource and the single source file, and writes `build\JigRack.exe`. The librari
    (`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`).
 3. Start it. Windows may put a new tray icon in the `^` overflow; drag it onto the taskbar to keep it visible.
 
-To uninstall, exit it from the tray menu and delete the exe, the shortcut and `HKCU\Software\JigRack`.
+To upgrade, run `build\JigRack.exe --exit` (it closes the running copy cleanly), copy the new exe over the old one
+and start it. Settings are kept.
+
+To uninstall, exit it from the tray menu and delete the exe, the shortcut, `%APPDATA%\Jig Rack` and (if 1.0 ever
+ran) `HKCU\Software\JigRack`.
 
 ## Diagnostics
 
 | Command | What it does |
 |---|---|
-| `JigRack.exe --selftest <log file>` | Runs the hot corner logic on a scripted cursor timeline against your real monitor layout and writes the results to the log. Never locks. Expect `0 failure(s)`. |
-| `JigRack.exe --preview <folder>` | Writes the tray icon in each state as PNGs (36 and 64 px) and exits. |
-| `JigRack.exe --demo-countdown` | Shows the 5..1 countdown at the real corner, without locking. |
+| `JigRack.exe --selftest <log file>` | Runs the hot corner rules on scripted cursor timelines against your real monitor layout, and a settings-file round trip, and writes the results to the log. Never acts. Expect `0 failure(s)`. |
+| `JigRack.exe --preview <folder>` | Writes the tray icons as PNGs and exits. |
+| `JigRack.exe --demo-countdown` | Shows the countdown at the first rule's corner, without any action. |
+| `JigRack.exe --snap-settings <folder>` | Opens the Settings window off-screen and saves each tab as a PNG. |
+| `JigRack.exe --devices <log file>` | Lists the Logitech mice found (receiver, slot, name, type, battery) in the log. |
+| `JigRack.exe --exit` | Closes the running copy cleanly. |
+| `JigRack.exe --write-ico <file>` | Writes the Jig Rack icon as a multi-size `.ico`. |
+| `--settings <file>` | With any of the above (or none): use that settings file instead of the one in `%APPDATA%`. |
 
-All three run alongside a running copy. The running app writes `jigrack.log` next to the exe: the receiver being
-opened or lost, the device and battery feature found, battery events and state changes, the hot corner's position,
-and each lock or cancel.
+These run alongside a running copy. The running app writes `jigrack.log` next to the exe: the settings it loaded,
+the receiver being opened or lost, the device and battery feature found, battery events and state changes, each hot
+corner's position, and each action or cancel.
 
 `tools\logi_battery.py` is a separate Python reader for the same battery query, handy for checking the mouse
 outside the app (standard library only, through `ctypes`).
@@ -102,6 +148,9 @@ The battery jig talks to the receiver directly, read-only, with Logitech's HID++
   1. **UNIFIED_BATTERY `0x1004`** — percentage and charging state (newer mice).
   2. **BATTERY_STATUS `0x1000`** — percentage and charging state (older mice).
   3. **BATTERY_VOLTAGE `0x1001`** — voltage only; the percentage is estimated and the tooltip shows it with `~`.
+- The list of mice comes from pinging each slot (1–6) on each receiver, and `0xFF` for a mouse on its cable, then
+  asking **DEVICE_NAME `0x0005`** for its name and type; only mice, trackballs and touchpads with a battery feature
+  are listed. The search uses its own HID++ software ID, so its replies are never mistaken for the monitor's.
 - The mouse also sends battery events on its own (function 0 of the battery feature), and the receiver sends a
   connection notification (`10 <device> 41 …`) when the mouse connects or drops; both are handled as they arrive.
 
