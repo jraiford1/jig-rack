@@ -62,7 +62,10 @@ static void mouse_enable(HWND pg)
     EnableWindow(GetDlgItem(pg, IDC_MOUSE_LIST), logi);
     EnableWindow(GetDlgItem(pg, IDC_MOUSE_STATUS), logi);
     EnableWindow(GetDlgItem(pg, IDC_MOUSE_REFRESH), logi && !g_searching);
-    EnableWindow(GetDlgItem(pg, IDC_MOUSE_METER), logi && g_set.productId);
+    EnableWindow(GetDlgItem(pg, IDC_MOUSE_METER), mouse_chosen(&g_set));
+    EnableWindow(GetDlgItem(pg, IDC_MOUSE_LOWLABEL), logi);
+    EnableWindow(GetDlgItem(pg, IDC_MOUSE_LOW), logi);
+    EnableWindow(GetDlgItem(pg, IDC_MOUSE_LOWNOTE), logi);
 }
 
 static void mouse_search_start(HWND pg)
@@ -99,6 +102,8 @@ static INT_PTR CALLBACK mouse_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         SendMessageW(cb, CB_ADDSTRING, 0, (LPARAM)L"Logitech (receiver or cable)");
         SendMessageW(cb, CB_SETCURSEL, g_set.mouseType, 0);
         CheckDlgButton(h, IDC_MOUSE_METER, g_set.showMeter ? BST_CHECKED : BST_UNCHECKED);
+        SendDlgItemMessageW(h, IDC_MOUSE_LOW, EM_LIMITTEXT, 2, 0);
+        SetDlgItemInt(h, IDC_MOUSE_LOW, g_set.lowPercent, FALSE);
         mouse_fill_list(h);
         g_filling = FALSE;
         g_pages[PAGE_MOUSE] = h;
@@ -138,6 +143,19 @@ static INT_PTR CALLBACK mouse_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             g_set.showMeter = IsDlgButtonChecked(h, IDC_MOUSE_METER) == BST_CHECKED;
             save_and_apply(0);
             return TRUE;
+        case IDC_MOUSE_LOW: {                                  /* 1-99; anything else shows the level in use again */
+            BOOL ok;
+            UINT v = GetDlgItemInt(h, IDC_MOUSE_LOW, &ok, FALSE);
+            if (HIWORD(wp) == EN_CHANGE && ok && v >= 1 && v <= 99 && (int)v != g_set.lowPercent) {
+                g_set.lowPercent = (int)v;
+                save_and_apply(0);                             /* redraws the meter in its new colour */
+            } else if (HIWORD(wp) == EN_KILLFOCUS && (!ok || v < 1 || v > 99)) {
+                g_filling = TRUE;
+                SetDlgItemInt(h, IDC_MOUSE_LOW, g_set.lowPercent, FALSE);
+                g_filling = FALSE;
+            }
+            return TRUE;
+        }
         }
         break;
     }
@@ -150,11 +168,19 @@ static void rules_fill(HWND pg)
 {
     HWND lb = GetDlgItem(pg, IDC_RULES);
     SendMessageW(lb, LB_RESETCONTENT, 0, 0);
+    HDC dc = GetDC(lb);
+    HGDIOBJ oldFont = SelectObject(dc, (HFONT)SendMessageW(lb, WM_GETFONT, 0, 0));
+    int widest = 0;
     for (int i = 0; i < g_set.ruleCount; i++) {
         wchar_t t[700];
         rule_describe(&g_set.rules[i], t, 700);
         SendMessageW(lb, LB_ADDSTRING, 0, (LPARAM)t);
+        SIZE sz;
+        if (GetTextExtentPoint32W(dc, t, (int)wcslen(t), &sz) && sz.cx > widest) widest = sz.cx;
     }
+    SelectObject(dc, oldFont);
+    ReleaseDC(lb, dc);
+    SendMessageW(lb, LB_SETHORIZONTALEXTENT, widest + 8, 0);   /* scroll sideways to read a long rule */
     if (g_rule >= g_set.ruleCount) g_rule = g_set.ruleCount - 1;
     SendMessageW(lb, LB_SETCURSEL, g_rule, 0);
 }
@@ -168,6 +194,13 @@ static void rule_relabel(HWND pg)
     SendMessageW(lb, LB_DELETESTRING, g_rule, 0);
     SendMessageW(lb, LB_INSERTSTRING, g_rule, (LPARAM)t);
     SendMessageW(lb, LB_SETCURSEL, g_rule, 0);
+    HDC dc = GetDC(lb);
+    HGDIOBJ oldFont = SelectObject(dc, (HFONT)SendMessageW(lb, WM_GETFONT, 0, 0));
+    SIZE sz;
+    if (GetTextExtentPoint32W(dc, t, (int)wcslen(t), &sz) && sz.cx + 8 > (int)SendMessageW(lb, LB_GETHORIZONTALEXTENT, 0, 0))
+        SendMessageW(lb, LB_SETHORIZONTALEXTENT, sz.cx + 8, 0);
+    SelectObject(dc, oldFont);
+    ReleaseDC(lb, dc);
 }
 
 static void rule_fill_editor(HWND pg)
@@ -175,7 +208,7 @@ static void rule_fill_editor(HWND pg)
     g_filling = TRUE;
     BOOL have = g_rule >= 0 && g_rule < g_set.ruleCount;
     static const int ids[] = { IDC_RULE_CORNER, IDC_RULE_WHERE, IDC_RULE_ACTION, IDC_RULE_COMMAND, IDC_RULE_CMDLABEL,
-                               IDC_RULE_DELAY, IDC_RULE_COUNTDOWN, IDC_RULE_DEL, IDC_RULE_GROUP };
+                               IDC_RULE_DELAY, IDC_RULE_COUNTDOWN, IDC_RULE_WARN, IDC_RULE_DEL, IDC_RULE_GROUP };
     for (int k = 0; k < (int)(sizeof ids / sizeof ids[0]); k++) EnableWindow(GetDlgItem(pg, ids[k]), have);
     EnableWindow(GetDlgItem(pg, IDC_RULE_ADD), g_set.ruleCount < MAX_RULES);
     HWND where = GetDlgItem(pg, IDC_RULE_WHERE);
@@ -210,6 +243,7 @@ static void rule_fill_editor(HWND pg)
         swprintf_s(d, 32, L"%g", r->delayMs / 1000.0);
         SetDlgItemTextW(pg, IDC_RULE_DELAY, d);
         CheckDlgButton(pg, IDC_RULE_COUNTDOWN, r->countdown ? BST_CHECKED : BST_UNCHECKED);
+        CheckDlgButton(pg, IDC_RULE_WARN, r->warnLow ? BST_CHECKED : BST_UNCHECKED);
         EnableWindow(GetDlgItem(pg, IDC_RULE_COMMAND), r->action == ACT_RUN);
         EnableWindow(GetDlgItem(pg, IDC_RULE_CMDLABEL), r->action == ACT_RUN);
     } else {
@@ -218,6 +252,7 @@ static void rule_fill_editor(HWND pg)
         SetDlgItemTextW(pg, IDC_RULE_COMMAND, L"");
         SetDlgItemTextW(pg, IDC_RULE_DELAY, L"");
         CheckDlgButton(pg, IDC_RULE_COUNTDOWN, BST_UNCHECKED);
+        CheckDlgButton(pg, IDC_RULE_WARN, BST_UNCHECKED);
     }
     g_filling = FALSE;
 }
@@ -335,6 +370,9 @@ static INT_PTR CALLBACK corners_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             break;
         case IDC_RULE_COUNTDOWN:
             r->countdown = IsDlgButtonChecked(h, IDC_RULE_COUNTDOWN) == BST_CHECKED;
+            break;
+        case IDC_RULE_WARN:
+            r->warnLow = IsDlgButtonChecked(h, IDC_RULE_WARN) == BST_CHECKED;
             break;
         default:
             return FALSE;

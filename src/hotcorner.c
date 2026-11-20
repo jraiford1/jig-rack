@@ -185,10 +185,13 @@ static BOOL rule_step(int i, POINT p, BOOL ok, BOOL button, ULONGLONG now)
 
 /* ---------------------------------------------------------------- countdown ----------------------------------- */
 /* While the cursor rests in a corner, a big white number with a black outline counts down beside the corner,
-   inside the screen. A layered, click-through, never-activated topmost window, so it can't take a click or the
-   focus. Shown from 0.5 s in (a quick trip to a close button doesn't flash it); redrawn only when it changes. */
+   inside the screen; with a rule's "warn if the mouse battery is low" and a low mouse, a red line under it (over
+   it, at a bottom corner) says so. A layered, click-through, never-activated topmost window, so it can't take a
+   click or the focus. Shown from 0.5 s in (a quick trip to a close button doesn't flash it); redrawn only when what
+   it shows changes. */
 static HWND g_cd;
-static int g_cdShown;           /* number on screen; 0 = hidden */
+static int g_cdShown;           /* number on screen; 0 = none */
+static int g_cdWarn;            /* battery % in the warning on screen; -1 = none */
 static POINT g_cdAt;
 static int g_cdCorner;
 
@@ -201,26 +204,89 @@ static void countdown_create(HINSTANCE inst)
     RegisterClassW(&wc);
     g_cd = CreateWindowExW(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
                            wc.lpszClassName, L"", WS_POPUP, 0, 0, 0, 0, NULL, NULL, inst, NULL);
+    g_cdWarn = -1;
 }
 
-static void countdown_show(int n, POINT at, int corner)
+/* The overlay's size in pixels for a number (n > 0) and/or a warning (warn >= 0) at this DPI. */
+static void overlay_size(int n, int warn, UINT dpi, int *w, int *h)
 {
-    if (n == g_cdShown && (!n || (at.x == g_cdAt.x && at.y == g_cdAt.y && corner == g_cdCorner))) return;
+    int size = MulDiv(76, dpi, 96), line = MulDiv(34, dpi, 96);
+    *w = warn >= 0 ? MulDiv(330, dpi, 96) : size;
+    *h = (n > 0 ? size : 0) + (warn >= 0 ? line : 0);
+}
+
+static void outlined_text(GpGraphics *g, const wchar_t *text, GpFontFamily *fam, REAL em, const GpRectF *box,
+                          int align, ARGB fill, REAL pen)
+{
+    GpStringFormat *fmt = NULL;
+    GdipCreateStringFormat(0x1000 /* NoClip */, 0, &fmt);
+    GdipSetStringFormatAlign(fmt, align);
+    GdipSetStringFormatLineAlign(fmt, 1);
+    GpPath *tp = NULL;
+    GdipCreatePath(0, &tp);
+    GdipAddPathString(tp, text, -1, fam, 1 /* bold */, em, box, fmt);
+    GpPen *outline = NULL;
+    GdipCreatePen1(ARGBV(255, 0, 0, 0), pen, 0, &outline);
+    GdipSetPenLineJoin(outline, 2 /* round */);
+    GpBrush *brush = NULL;
+    GdipCreateSolidFill(fill, &brush);
+    GdipDrawPath(g, outline, tp);
+    GdipFillPath(g, brush, tp);
+    GdipDeleteBrush(brush);
+    GdipDeletePen(outline);
+    GdipDeletePath(tp);
+    GdipDeleteStringFormat(fmt);
+}
+
+/* Draw the overlay into g (w x h, cleared): the number on the corner's side, the warning line on the inner side. */
+static void overlay_draw(GpGraphics *g, int w, int h, int n, int warn, int corner, UINT dpi)
+{
+    int size = MulDiv(76, dpi, 96), line = MulDiv(34, dpi, 96);
+    GdipSetSmoothingMode(g, 4);
+    GdipSetPixelOffsetMode(g, 4);
+    GpFontFamily *fam = NULL;
+    GdipCreateFontFamilyFromName(L"Segoe UI", NULL, &fam);
+    if (!fam) GdipCreateFontFamilyFromName(L"Arial", NULL, &fam);
+    BOOL right = is_right(corner), bottom = is_bottom(corner);
+    REAL numTop = (REAL)(bottom && warn >= 0 ? h - size : 0);
+    if (n > 0) {
+        wchar_t text[8];
+        swprintf_s(text, 8, L"%d", n);
+        GpRectF box = { (REAL)(right ? w - size : 0), numTop - size * 0.06f, (REAL)size, (REAL)size };
+        outlined_text(g, text, fam, size * (n >= 10 ? 0.62f : 0.86f), &box, 1, ARGBV(255, 255, 255, 255), size * 0.11f);
+    }
+    if (warn >= 0) {
+        wchar_t text[64];
+        swprintf_s(text, 64, L"Mouse battery %d%% \x2014 charge it", warn);
+        REAL top = n > 0 ? (bottom ? numTop - line : (REAL)size) : 0;
+        GpRectF box = { 0, top, (REAL)w, (REAL)line };
+        REAL em = (REAL)MulDiv(21, dpi, 96);
+        outlined_text(g, text, fam, em, &box, right ? 2 : 0, ARGBV(255, 255, 92, 80), em * 0.2f);
+    }
+    if (fam) GdipDeleteFontFamily(fam);
+}
+
+static void countdown_show(int n, int warn, POINT at, int corner)
+{
+    if (n == g_cdShown && warn == g_cdWarn &&
+        ((!n && warn < 0) || (at.x == g_cdAt.x && at.y == g_cdAt.y && corner == g_cdCorner))) return;
     g_cdShown = n;
+    g_cdWarn = warn;
     g_cdAt = at;
     g_cdCorner = corner;
     if (!g_cd) return;
-    if (!n) { ShowWindow(g_cd, SW_HIDE); return; }
+    if (!n && warn < 0) { ShowWindow(g_cd, SW_HIDE); return; }
 
     UINT dpi = 96, dx = 96, dy = 96;
     HMONITOR mon = MonitorFromPoint(at, MONITOR_DEFAULTTONEAREST);
     if (GetDpiForMonitor(mon, MDT_EFFECTIVE_DPI, &dx, &dy) == S_OK) dpi = dx;
-    int size = MulDiv(76, dpi, 96), margin = MulDiv(14, dpi, 96);
+    int w, h, margin = MulDiv(14, dpi, 96);
+    overlay_size(n, warn, dpi, &w, &h);
 
     BITMAPINFO bi = {0};
     bi.bmiHeader.biSize = sizeof bi.bmiHeader;
-    bi.bmiHeader.biWidth = size;
-    bi.bmiHeader.biHeight = -size;                       /* top-down */
+    bi.bmiHeader.biWidth = w;
+    bi.bmiHeader.biHeight = -h;                          /* top-down */
     bi.bmiHeader.biPlanes = 1;
     bi.bmiHeader.biBitCount = 32;
     bi.bmiHeader.biCompression = BI_RGB;
@@ -233,42 +299,16 @@ static void countdown_show(int n, POINT at, int corner)
     /* GDI+ draws straight into the DIB as premultiplied ARGB, which is what UpdateLayeredWindow wants. */
     GpBitmap *bmp = NULL;
     GpGraphics *g = NULL;
-    GdipCreateBitmapFromScan0(size, size, size * 4, PixelFormat32bppPARGB, (BYTE *)bits, &bmp);
+    GdipCreateBitmapFromScan0(w, h, w * 4, PixelFormat32bppPARGB, (BYTE *)bits, &bmp);
     GdipGetImageGraphicsContext(bmp, &g);
-    GdipSetSmoothingMode(g, 4);
-    GdipSetPixelOffsetMode(g, 4);
     GdipGraphicsClear(g, 0);
-    GpFontFamily *fam = NULL;
-    GpStringFormat *fmt = NULL;
-    GdipCreateFontFamilyFromName(L"Segoe UI", NULL, &fam);
-    if (!fam) GdipCreateFontFamilyFromName(L"Arial", NULL, &fam);
-    GdipCreateStringFormat(0x1000 /* NoClip */, 0, &fmt);
-    GdipSetStringFormatAlign(fmt, 1);
-    GdipSetStringFormatLineAlign(fmt, 1);
-    wchar_t text[8];
-    swprintf_s(text, 8, L"%d", n);
-    GpRectF box = { 0, -size * 0.06f, (REAL)size, (REAL)size };
-    GpPath *tp = NULL;
-    GdipCreatePath(0, &tp);
-    GdipAddPathString(tp, text, -1, fam, 1 /* bold */, size * (n >= 10 ? 0.62f : 0.86f), &box, fmt);
-    GpPen *outline = NULL;
-    GdipCreatePen1(ARGBV(255, 0, 0, 0), size * 0.11f, 0, &outline);
-    GdipSetPenLineJoin(outline, 2 /* round */);
-    GpBrush *white = NULL;
-    GdipCreateSolidFill(ARGBV(255, 255, 255, 255), &white);
-    GdipDrawPath(g, outline, tp);
-    GdipFillPath(g, white, tp);
-    GdipDeleteBrush(white);
-    GdipDeletePen(outline);
-    GdipDeletePath(tp);
-    GdipDeleteStringFormat(fmt);
-    if (fam) GdipDeleteFontFamily(fam);
+    overlay_draw(g, w, h, n, warn, corner, dpi);
     GdipDeleteGraphics(g);
     GdipDisposeImage(bmp);
 
-    POINT dst = { is_right(corner) ? at.x - margin - size + 1 : at.x + margin,
-                  is_bottom(corner) ? at.y - margin - size + 1 : at.y + margin }, src = { 0, 0 };
-    SIZE sz = { size, size };
+    POINT dst = { is_right(corner) ? at.x - margin - w + 1 : at.x + margin,
+                  is_bottom(corner) ? at.y - margin - h + 1 : at.y + margin }, src = { 0, 0 };
+    SIZE sz = { w, h };
     BLENDFUNCTION bf = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
     UpdateLayeredWindow(g_cd, screen, &dst, &sz, mem, &src, 0, &bf, ULW_ALPHA);
     SetWindowPos(g_cd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
@@ -278,16 +318,44 @@ static void countdown_show(int n, POINT at, int corner)
     ReleaseDC(NULL, screen);
 }
 
-/* Number to show for a rule's dwell: counting down from 0.5 s in, else 0. remain = ms left. */
-static int rule_countdown(int i, ULONGLONG now, ULONGLONG *remain)
+/* --preview: the overlay as PNGs, over a dark and a light background, at the system DPI. */
+void hotcorner_write_previews(const wchar_t *dir)
+{
+    static const CLSID png = { 0x557cf406, 0x1a04, 0x11d3, { 0x9a, 0x73, 0x00, 0x00, 0xf8, 0x1e, 0xf3, 0x2e } };
+    struct { const wchar_t *name; int n, warn, corner; ARGB bg; } s[] = {
+        { L"countdown-3",                  3, -1, CORNER_TR, ARGBV(255, 40, 70, 120) },
+        { L"countdown-3-warning-top-right", 3, 12, CORNER_TR, ARGBV(255, 40, 70, 120) },
+        { L"countdown-2-warning-bottom-left", 2, 18, CORNER_BL, ARGBV(255, 236, 236, 236) },
+        { L"warning-only-top-left",        0,  9, CORNER_TL, ARGBV(255, 236, 236, 236) },
+    };
+    UINT dpi = GetDpiForSystem();
+    for (int i = 0; i < (int)(sizeof s / sizeof s[0]); i++) {
+        int w, h;
+        overlay_size(s[i].n, s[i].warn, dpi, &w, &h);
+        GpBitmap *bmp = NULL;
+        GpGraphics *g = NULL;
+        GdipCreateBitmapFromScan0(w, h, 0, PixelFormat32bppARGB, NULL, &bmp);
+        GdipGetImageGraphicsContext(bmp, &g);
+        GdipGraphicsClear(g, s[i].bg);
+        overlay_draw(g, w, h, s[i].n, s[i].warn, s[i].corner, dpi);
+        GdipDeleteGraphics(g);
+        wchar_t path[MAX_PATH];
+        swprintf_s(path, MAX_PATH, L"%s\\%s.png", dir, s[i].name);
+        GdipSaveImageToFile(bmp, path, &png, NULL);
+        GdipDisposeImage(bmp);
+    }
+}
+
+/* A rule's dwell in progress, from 0.5 s in until it fires? remain = ms left. */
+static BOOL rule_dwelling(int i, ULONGLONG now, ULONGLONG *remain)
 {
     const RuleRun *u = &g_run[i];
     const Rule *r = &g_set.rules[i];
-    if (!r->countdown || !u->since || u->spent) return 0;
+    if (!u->since || u->spent) return FALSE;
     ULONGLONG el = now - u->since;
-    if (el < 500 || el >= (ULONGLONG)r->delayMs) return 0;
+    if (el < 500 || el >= (ULONGLONG)r->delayMs) return FALSE;
     *remain = r->delayMs - el;
-    return (int)((*remain + 999) / 1000);
+    return TRUE;
 }
 
 /* ---------------------------------------------------------------- actions ------------------------------------- */
@@ -346,6 +414,18 @@ static void fire(int i)
 
 /* ---------------------------------------------------------------- driving it ---------------------------------- */
 
+/* What rule i's dwell shows now: the countdown number (0 = none) and the battery warning (-1 = none).
+   TRUE if either; remain = ms left. */
+static BOOL rule_overlay(int i, ULONGLONG now, int *n, int *warn, ULONGLONG *remain)
+{
+    *n = 0;
+    *warn = -1;
+    if (!rule_dwelling(i, now, remain)) return FALSE;
+    if (g_set.rules[i].countdown) *n = (int)((*remain + 999) / 1000);
+    if (g_set.rules[i].warnLow && mouse_battery_low()) *warn = g_battery.percent;
+    return *n > 0 || *warn >= 0;
+}
+
 void hotcorner_tick(void)
 {
     ULONGLONG now = GetTickCount64();
@@ -353,21 +433,23 @@ void hotcorner_tick(void)
     POINT p;
     BOOL ok = GetCursorPos(&p);
     BOOL button = ((GetAsyncKeyState(VK_LBUTTON) | GetAsyncKeyState(VK_RBUTTON) | GetAsyncKeyState(VK_MBUTTON)) & 0x8001) != 0;
-    int show = 0, corner = 0;
+    int show = 0, warn = -1, corner = 0;
     ULONGLONG best = (ULONGLONG)-1;
     POINT at = { 0, 0 };
     for (int i = 0; i < g_set.ruleCount; i++) {
         if (rule_step(i, p, ok, button, now)) {
-            countdown_show(0, at, 0);
+            countdown_show(0, -1, at, 0);
             fire(i);
             now = GetTickCount64();
         } else if (ok) {
             ULONGLONG remain;
-            int n = rule_countdown(i, now, &remain);
-            if (n && remain < best) { best = remain; show = n; at = g_run[i].at; corner = g_set.rules[i].corner; }
+            int n, w;
+            if (rule_overlay(i, now, &n, &w, &remain) && remain < best) {
+                best = remain; show = n; warn = w; at = g_run[i].at; corner = g_set.rules[i].corner;
+            }
         }
     }
-    countdown_show(show, at, corner);
+    countdown_show(show, warn, at, corner);
 }
 
 void hotcorner_apply(void)
@@ -378,7 +460,7 @@ void hotcorner_apply(void)
         g_run[i].n = 0;
     }
     POINT none = { 0, 0 };
-    countdown_show(0, none, 0);
+    countdown_show(0, -1, none, 0);
     layout();
     if (!g_owner) return;
     if (g_set.ruleCount) SetTimer(g_owner, TIMER_CORNER, POLL_MS, NULL);
@@ -400,7 +482,7 @@ void hotcorner_demo_countdown(void)
     layout();
     POINT at = g_run[0].n ? g_run[0].pt[0] : (POINT){ 0, 0 };
     for (int n = 5; n >= 1; n--) {
-        countdown_show(n, at, g_set.rules[0].corner);
+        countdown_show(n, -1, at, g_set.rules[0].corner);
         ULONGLONG until = GetTickCount64() + 1000;
         MSG dm;
         while (GetTickCount64() < until) {
@@ -408,7 +490,7 @@ void hotcorner_demo_countdown(void)
             Sleep(20);
         }
     }
-    countdown_show(0, at, 0);
+    countdown_show(0, -1, at, 0);
 }
 
 /* ---------------------------------------------------------------- self-test ----------------------------------- */
@@ -554,6 +636,60 @@ static void test_more_rules(const MonitorDesc *m, int n)
     }
 }
 
+static void test_low_battery(void)
+{
+    Battery saved = g_battery;
+    settings_defaults(&g_set);
+    g_set.mouseType = MOUSE_LOGITECH;
+    g_set.productId = 0xC547;
+    g_set.deviceIndex = 1;
+    g_set.lowPercent = 20;
+    g_set.rules[0].warnLow = 1;
+    ZeroMemory(&g_battery, sizeof g_battery);
+    g_battery.ok = 1;
+    g_battery.percent = 15;
+    EXPECT(mouse_battery_low(), "low battery: 15% with the level at 20%: low");
+    g_battery.percent = 20;
+    EXPECT(mouse_battery_low(), "low battery: 20%, at the level: low");
+    g_battery.percent = 21;
+    EXPECT(!mouse_battery_low(), "low battery: 21%: not low");
+    g_battery.percent = 15;
+    g_battery.charging = 1;
+    EXPECT(!mouse_battery_low(), "low battery: 15% but charging: no warning");
+    g_battery.charging = 0;
+    g_battery.stale = 1;
+    EXPECT(mouse_battery_low(), "low battery: 15%, mouse asleep (last reading): low");
+    g_battery.ok = 0;
+    EXPECT(!mouse_battery_low(), "low battery: no reading: no warning");
+    g_battery.ok = 1;
+    g_battery.stale = 0;
+    g_set.mouseType = MOUSE_NONE;
+    EXPECT(!mouse_battery_low(), "low battery: no mouse chosen: no warning");
+    g_set.mouseType = MOUSE_LOGITECH;
+
+    reset_runs();
+    POINT c = g_run[0].pt[0];
+    ULONGLONG t = 9000000, rem;
+    int n, w;
+    rule_step(0, c, TRUE, FALSE, t);
+    rule_step(0, c, TRUE, FALSE, t + 1200);
+    BOOL any = rule_overlay(0, t + 1200, &n, &w, &rem);
+    EXPECT(any && n == 4 && w == 15, "1.2 s into a 5 s dwell with a low mouse: countdown 4 and the 15% warning");
+    EXPECT(!rule_overlay(0, t + 300, &n, &w, &rem), "0.3 s into the dwell: nothing shown yet");
+    g_set.rules[0].countdown = 0;
+    any = rule_overlay(0, t + 1200, &n, &w, &rem);
+    EXPECT(any && n == 0 && w == 15, "countdown off: the warning alone");
+    g_set.rules[0].warnLow = 0;
+    g_set.rules[0].countdown = 1;
+    any = rule_overlay(0, t + 1200, &n, &w, &rem);
+    EXPECT(any && n == 4 && w == -1, "warning off: the countdown alone");
+    g_set.rules[0].warnLow = 1;
+    g_battery.percent = 60;
+    any = rule_overlay(0, t + 1200, &n, &w, &rem);
+    EXPECT(any && n == 4 && w == -1, "warning on but the mouse at 60%: the countdown alone");
+    g_battery = saved;
+}
+
 static void test_settings_file(void)
 {
     wchar_t tmp[MAX_PATH], old[MAX_PATH];
@@ -569,10 +705,12 @@ static void test_settings_file(void)
     a.deviceIndex = 2;
     wcscpy_s(a.deviceName, 64, L"G502 X LIGHTSPEED \x2014 \x00e9\x00e8");
     a.showMeter = 0;
+    a.lowPercent = 35;
     a.ruleCount = 3;
     rule_defaults(&a.rules[1]);
     rule_defaults(&a.rules[2]);
     a.rules[1].corner = CORNER_BL; a.rules[1].where = WHERE_ANY; a.rules[1].action = ACT_RUN; a.rules[1].delayMs = 1500;
+    a.rules[1].warnLow = 1;
     wcscpy_s(a.rules[1].command, 512, L"\"C:\\Program Files\\Notepad++\\notepad++.exe\" -n10 file.txt");
     a.rules[2].corner = CORNER_TL; a.rules[2].where = WHERE_MONITOR; a.rules[2].action = ACT_SCREENS_OFF;
     a.rules[2].delayMs = 2250; a.rules[2].countdown = 0;
@@ -582,6 +720,7 @@ static void test_settings_file(void)
     settings_load(&b);
     BOOL same = saved && a.mouseType == b.mouseType && a.productId == b.productId && a.deviceIndex == b.deviceIndex &&
                 wcscmp(a.deviceName, b.deviceName) == 0 && a.showMeter == b.showMeter && a.ruleCount == b.ruleCount &&
+                a.lowPercent == b.lowPercent &&
                 memcmp(a.rules, b.rules, sizeof a.rules) == 0;
     EXPECT(same, "settings file: saved and read back the same (3 rules, non-ASCII names)");
     a.ruleCount = 1;
@@ -591,7 +730,8 @@ static void test_settings_file(void)
     DeleteFileW(tmp);
     settings_load(&b);
     EXPECT(b.mouseType == MOUSE_NONE && b.ruleCount == 1 && b.rules[0].corner == CORNER_TR &&
-           b.rules[0].action == ACT_LOCK && b.rules[0].delayMs == 5000, "no settings file: the defaults");
+           b.rules[0].action == ACT_LOCK && b.rules[0].delayMs == 5000 && !b.rules[0].warnLow && b.lowPercent == 20,
+           "no settings file: the defaults");
     settings_use_file(old);
 }
 
@@ -604,6 +744,7 @@ int hotcorner_selftest(void)
     int n = monitors(m, MAX_MONS, FALSE);
     test_default_rule(m, n);
     test_more_rules(m, n);
+    test_low_battery();
     test_settings_file();
     trace("selftest done: %d failure(s)", g_fails);
     g_set = saved;

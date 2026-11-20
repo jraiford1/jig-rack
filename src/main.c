@@ -55,16 +55,16 @@ static HINSTANCE g_inst;
 static NOTIFYICONDATAW g_nid;
 static HICON g_icon;
 static UINT g_taskbarCreated;
-static Battery g_shown = { 0, 0, 0, 0, 0, L"reading\x2026" };   /* the last reading from the monitor thread */
+Battery g_battery = { 0, 0, 0, 0, 0, L"reading\x2026" };   /* the last reading from the monitor thread */
 
 /* The battery meter when a mouse is chosen and "show the meter" is on; the Jig Rack icon otherwise. */
 void tray_refresh(void)
 {
     if (!g_nid.cbSize) return;
-    BOOL chosen = g_set.mouseType == MOUSE_LOGITECH && g_set.productId;
-    HICON icon = chosen && g_set.showMeter ? icon_meter(&g_shown) : icon_app(0);
+    BOOL chosen = mouse_chosen(&g_set);
+    HICON icon = chosen && g_set.showMeter ? icon_meter(&g_battery) : icon_app(0);
     wchar_t tip[128];
-    const Battery *b = &g_shown;
+    const Battery *b = &g_battery;
     if (!chosen) wcscpy_s(tip, 128, APP_NAME);
     else if (b->ok && b->stale)
         swprintf_s(tip, 128, L"%s\nMouse battery %s%d%% (last reading; %s)", APP_NAME, b->approx ? L"~" : L"", b->percent, b->state);
@@ -122,7 +122,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_RESULT: {
         Battery *b = (Battery *)lp;
-        g_shown = *b;
+        g_battery = *b;
         HeapFree(GetProcessHeap(), 0, b);
         tray_refresh();
         return 0;
@@ -209,7 +209,11 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show_cmd)
         hotcorner_demo_countdown();
         return 0;
     }
-    if (argv && (v = arg_after(argc, argv, L"--preview")) != NULL) { icons_write_previews(v); return 0; }
+    if (argv && (v = arg_after(argc, argv, L"--preview")) != NULL) {
+        icons_write_previews(v);
+        hotcorner_write_previews(v);
+        return 0;
+    }
     if (argv && (v = arg_after(argc, argv, L"--write-ico")) != NULL) return icons_write_ico(v) ? 0 : 1;
     if (argv && (v = arg_after(argc, argv, L"--snap-settings")) != NULL) {
         wchar_t log[MAX_PATH];

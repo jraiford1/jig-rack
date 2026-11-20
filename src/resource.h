@@ -13,6 +13,9 @@
 #define IDC_MOUSE_REFRESH       1103
 #define IDC_MOUSE_METER         1104
 #define IDC_MOUSE_LISTLABEL     1105
+#define IDC_MOUSE_LOW           1106
+#define IDC_MOUSE_LOWLABEL      1107
+#define IDC_MOUSE_LOWNOTE       1108
 
 #define IDC_RULES               1200
 #define IDC_RULE_ADD            1201
@@ -25,3 +28,4 @@
 #define IDC_RULE_COUNTDOWN      1208
 #define IDC_RULE_GROUP          1209
 #define IDC_RULE_CMDLABEL       1210
+#define IDC_RULE_WARN           1211
