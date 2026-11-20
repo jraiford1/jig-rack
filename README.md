@@ -41,14 +41,14 @@ Rest the cursor in the **top-right corner of the whole monitor set** for 5 s and
 - A click cancels (so a window's close button in that corner still works). After a lock or a cancel, the cursor
   has to leave the corner before it can fire again, so coming back from the lock screen doesn't lock again.
 
-## Tray menu
+## Tray menu and settings
 
-Right-click the icon:
+Right-click the icon for **Settings…** and **Exit** (double-clicking the icon opens Settings too).
 
-- **Refresh mouse battery** — check the battery now.
-- **Hot corner: top-right 5 s locks** — turn the hot corner on or off (on by default). Remembered in
-  `HKCU\Software\JigRack\HotCornerLock`.
-- **Exit**
+**Settings** opens a window with a tab for each jig. Every change is saved and takes effect at once; there's
+nothing to apply and no restart. The settings live in `%APPDATA%\Jig Rack\settings.ini` (UTF-16, written by the
+window). With no settings file, no mouse is chosen and the hot corner is the top-right of the workspace, locking
+after 5 s.
 
 Only one copy runs at a time. If Explorer restarts, the icon comes back on its own.
 
@@ -60,9 +60,20 @@ You need Visual Studio (2022 or later) with the **Desktop development with C++**
 build.cmd
 ```
 
-`build.cmd` finds Visual Studio with `vswhere`, sets up the x64 tools (`vcvars64.bat`), compiles the version
-resource and the single source file, and writes `build\JigRack.exe`. The libraries are linked through
-`#pragma comment(lib, ...)` in the source, so there's no project file.
+`build.cmd` finds Visual Studio with `vswhere`, sets up the x64 tools (`vcvars64.bat`), compiles the resources
+(version, icon, manifest, the Settings dialogs) and `src\*.c`, and writes `build\JigRack.exe`. The libraries are
+linked through `#pragma comment(lib, ...)` in the source, so there's no project file. The app draws its own icon:
+if `src\jigrack.ico` is missing, `build.cmd` builds once without it, has the exe write it (`--write-ico`), and
+builds again.
+
+| Source | What's in it |
+|---|---|
+| `src\main.c` | Start-up, the tray icon and menu, the log, the command-line diagnostics |
+| `src\settings.c` | Reading and writing `settings.ini` |
+| `src\settingswnd.c` | The Settings window |
+| `src\mouse.c` | The mouse battery jig (HID++) |
+| `src\hotcorner.c` | The hot corner jig, its countdown and its self-test |
+| `src\icons.c` | The tray icons (GDI+), previews and the `.ico` |
 
 ## Install
 
@@ -71,19 +82,27 @@ resource and the single source file, and writes `build\JigRack.exe`. The librari
    (`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`).
 3. Start it. Windows may put a new tray icon in the `^` overflow; drag it onto the taskbar to keep it visible.
 
-To uninstall, exit it from the tray menu and delete the exe, the shortcut and `HKCU\Software\JigRack`.
+To upgrade, run `build\JigRack.exe --exit` (it closes the running copy cleanly), copy the new exe over the old one
+and start it. Settings are kept.
+
+To uninstall, exit it from the tray menu and delete the exe, the shortcut, `%APPDATA%\Jig Rack` and (if 1.0 ever
+ran) `HKCU\Software\JigRack`.
 
 ## Diagnostics
 
 | Command | What it does |
 |---|---|
-| `JigRack.exe --selftest <log file>` | Runs the hot corner logic on a scripted cursor timeline against your real monitor layout and writes the results to the log. Never locks. Expect `0 failure(s)`. |
-| `JigRack.exe --preview <folder>` | Writes the tray icon in each state as PNGs (36 and 64 px) and exits. |
-| `JigRack.exe --demo-countdown` | Shows the 5..1 countdown at the real corner, without locking. |
+| `JigRack.exe --selftest <log file>` | Runs the hot corner rules on scripted cursor timelines against your real monitor layout, and a settings-file round trip, and writes the results to the log. Never acts. Expect `0 failure(s)`. |
+| `JigRack.exe --preview <folder>` | Writes the tray icons as PNGs and exits. |
+| `JigRack.exe --demo-countdown` | Shows the countdown at the first rule's corner, without any action. |
+| `JigRack.exe --snap-settings <folder>` | Opens the Settings window off-screen and saves each tab as a PNG. |
+| `JigRack.exe --exit` | Closes the running copy cleanly. |
+| `JigRack.exe --write-ico <file>` | Writes the Jig Rack icon as a multi-size `.ico`. |
+| `--settings <file>` | With any of the above (or none): use that settings file instead of the one in `%APPDATA%`. |
 
-All three run alongside a running copy. The running app writes `jigrack.log` next to the exe: the receiver being
-opened or lost, the device and battery feature found, battery events and state changes, the hot corner's position,
-and each lock or cancel.
+These run alongside a running copy. The running app writes `jigrack.log` next to the exe: the settings it loaded,
+the receiver being opened or lost, the device and battery feature found, battery events and state changes, each hot
+corner's position, and each action or cancel.
 
 `tools\logi_battery.py` is a separate Python reader for the same battery query, handy for checking the mouse
 outside the app (standard library only, through `ctypes`).

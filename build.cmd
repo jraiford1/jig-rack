@@ -13,6 +13,17 @@ if not defined VS (
 call "%VS%\VC\Auxiliary\Build\vcvars64.bat" >nul 2>nul || exit /b 1
 cd /d "%~dp0"
 if not exist build mkdir build
-rc /nologo /fo build\jigrack.res src\jigrack.rc || exit /b 1
-cl /nologo /O2 /W3 /DUNICODE /D_UNICODE /Fo:build\ src\jigrack.c build\jigrack.res /Fe:build\JigRack.exe /link /SUBSYSTEM:WINDOWS || exit /b 1
+rem The app draws its own icon: with no src\jigrack.ico yet, build once without it, have the exe write it, rebuild.
+if not exist src\jigrack.ico (
+    call :compile /DNO_ICON || exit /b 1
+    build\JigRack.exe --write-ico src\jigrack.ico || exit /b 1
+    echo Wrote src\jigrack.ico
+)
+call :compile || exit /b 1
 echo Built build\JigRack.exe
+exit /b 0
+
+:compile
+rc /nologo %1 /i src /fo build\jigrack.res src\jigrack.rc || exit /b 1
+cl /nologo /O2 /W3 /DUNICODE /D_UNICODE /Fo:build\ src\*.c build\jigrack.res /Fe:build\JigRack.exe /link /SUBSYSTEM:WINDOWS /MANIFEST:NO || exit /b 1
+exit /b 0
