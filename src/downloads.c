@@ -216,6 +216,8 @@ static Button *button_of(HWND w)
     return NULL;
 }
 
+static LRESULT CALLBACK list_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR id, DWORD_PTR ref);
+
 static void panel_close(void)
 {
     HWND w = g_open;
@@ -314,6 +316,7 @@ static void panel_open(HWND w)
                                  LVS_SHAREIMAGELISTS | LVS_NOCOLUMNHEADER | LVS_SHOWSELALWAYS,
                                  0, titleH, width, listH, w, (HMENU)(INT_PTR)ID_LIST, g_inst, NULL);
         SetWindowTheme(g_list, L"Explorer", NULL);
+        SetWindowSubclass(g_list, list_proc, 1, 0);                   /* the whole row responds, not just the name */
         ListView_SetExtendedListViewStyle(g_list, LVS_EX_DOUBLEBUFFER | LVS_EX_ONECLICKACTIVATE | LVS_EX_TRACKSELECT);
         ListView_SetHoverTime(g_list, 1);                             /* select as the mouse moves, not after 400 ms */
         SendMessageW(g_list, WM_SETFONT, (WPARAM)g_font, FALSE);
@@ -467,6 +470,54 @@ static void item_menu(HWND w, int i, POINT pt)
     else if (cmd || GetForegroundWindow() != w) panel_close();
 }
 
+/* The row under a point (list client coordinates), anywhere across it. In tile view the list itself only counts
+   the icon and the name as the item, so the empty right side of a row would do nothing. */
+static int row_at(POINT pt)
+{
+    RECT client, r;
+    GetClientRect(g_list, &client);
+    if (pt.x < client.left || pt.x >= client.right) return -1;
+    int n = ListView_GetItemCount(g_list);
+    for (int i = 0; i < n; i++)
+        if (ListView_GetItemRect(g_list, i, &r, LVIR_BOUNDS) && pt.y >= r.top && pt.y < r.bottom) return i;
+    return -1;
+}
+
+/* Mouse on a row but off its icon and name: hovering and right-clicking are passed on as if over the icon; a
+   left click opens the file, or drags it if the mouse moves with the button down. */
+static LRESULT CALLBACK list_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR id, DWORD_PTR ref)
+{
+    (void)id; (void)ref;
+    switch (msg) {
+    case WM_MOUSEMOVE: case WM_MOUSEHOVER: case WM_RBUTTONDOWN: case WM_RBUTTONUP:
+    case WM_LBUTTONDOWN: case WM_LBUTTONUP: case WM_LBUTTONDBLCLK: {
+        POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
+        LVHITTESTINFO hit = { 0 };
+        hit.pt = pt;
+        if (ListView_HitTest(h, &hit) >= 0) break;                    /* on the icon or the name: as usual */
+        int i = row_at(pt);
+        if (i < 0) break;
+        if (msg == WM_LBUTTONDOWN) {
+            ListView_SetItemState(h, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+            ListView_SetItemState(h, i, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+            POINT sp = pt;
+            ClientToScreen(h, &sp);
+            if (DragDetect(h, sp)) drag_item(GetParent(h), i);
+            else open_item(i, FALSE);
+            return 0;
+        }
+        if (msg == WM_LBUTTONUP || msg == WM_LBUTTONDBLCLK) return 0;
+        RECT ir;
+        if (ListView_GetItemRect(h, i, &ir, LVIR_ICON)) lp = MAKELPARAM((ir.left + ir.right) / 2, pt.y);
+        break;
+    }
+    case WM_NCDESTROY:
+        RemoveWindowSubclass(h, list_proc, 1);
+        break;
+    }
+    return DefSubclassProc(h, msg, wp, lp);
+}
+
 static void button_clicked(HWND w, const char *how)
 {
     BOOL justClosed = g_closedBy == w && GetTickCount64() - g_closedAt < 500;
@@ -543,6 +594,7 @@ static LRESULT CALLBACK button_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp)
                 hit.pt = pt;
                 ScreenToClient(g_list, &hit.pt);
                 i = ListView_HitTest(g_list, &hit);
+                if (i < 0) i = row_at(hit.pt);
             }
             if (i >= 0) item_menu(w, i, pt);
             return 0;
