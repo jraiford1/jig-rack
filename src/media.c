@@ -1,7 +1,7 @@
 /* Jig Rack -- the eject media jig.
  * Copyright (C) 2026 Jon Raiford. GPL-3.0-or-later; see LICENSE.
  *
- * The tray menu's "Eject media" lists the drives that can be safely removed: removable drives (USB sticks, memory
+ * The tray menu lists the drives that can be safely removed, each as its own "Eject" item: removable drives (USB sticks, memory
  * cards) and USB, FireWire or SD-attached disks. Each disk is one entry, with all of its drive letters, since
  * removing it removes them all. Ejecting is what "Safely Remove Hardware" does: ask Windows (Plug and Play) to
  * eject the disk's removable device, which first makes sure nothing has a file open on it and flushes it. A card in
@@ -66,10 +66,10 @@ static void format_size(ULONGLONG bytes, wchar_t *out, int cch)
     else swprintf_s(out, cch, L"%.0f MB", bytes / 1e6);
 }
 
-/* Menu text: "&E: BACKUP - Samsung PSSD T7 (1.0 TB)"; '&' in a label is doubled so it isn't an accelerator. */
+/* Menu text: "Eject &E: BACKUP - Samsung PSSD T7 (1.0 TB)"; '&' in a label is doubled so it isn't an accelerator. */
 void media_label(Drive *d)
 {
-    wchar_t t[200] = L"", *p = t;
+    wchar_t t[200] = L"Eject ", *p = t + 6;
     for (const wchar_t *s = d->letters; *s && p < t + 190; s++) {
         if (s == d->letters) *p++ = L'&';
         *p++ = *s;
@@ -80,12 +80,12 @@ void media_label(Drive *d)
     wchar_t size[32];
     format_size(d->bytes, size, 32);
     swprintf_s(d->label, ARRAYSIZE(d->label), L"%s (%s)", t, size);
-    /* double any '&' after the leading accelerator */
+    /* double any '&' after the accelerator (the one just before the first letter, at index 6) */
     wchar_t out[ARRAYSIZE(d->label)];
     int o = 0;
     for (int i = 0; d->label[i] && o < (int)ARRAYSIZE(out) - 2; i++) {
         out[o++] = d->label[i];
-        if (d->label[i] == L'&' && i > 0) out[o++] = L'&';
+        if (d->label[i] == L'&' && i != 6) out[o++] = L'&';
     }
     out[o] = 0;
     wcscpy_s(d->label, ARRAYSIZE(d->label), out);

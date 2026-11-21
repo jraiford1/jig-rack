@@ -115,15 +115,10 @@ static void tray_menu(HWND hwnd)
     GetCursorPos(&pt);
     static Drive drives[MAX_DRIVES];
     int nd = media_list(drives, MAX_DRIVES);
-    HMENU eject = CreatePopupMenu();
-    for (int i = 0; i < nd; i++) AppendMenuW(eject, MF_STRING, ID_EJECT + i, drives[i].label);
-    if (!nd) AppendMenuW(eject, MF_STRING | MF_GRAYED, 0, L"No removable drives");
-    else if (nd > 1) {
-        AppendMenuW(eject, MF_SEPARATOR, 0, NULL);
-        AppendMenuW(eject, MF_STRING, ID_EJECT_ALL, L"Eject &all");
-    }
-    HMENU m = CreatePopupMenu();
-    AppendMenuW(m, MF_POPUP, (UINT_PTR)eject, L"&Eject media");
+    HMENU m = CreatePopupMenu();                    /* the drives right in the menu: one click to eject */
+    for (int i = 0; i < nd; i++) AppendMenuW(m, MF_STRING, ID_EJECT + i, drives[i].label);
+    if (nd > 1) AppendMenuW(m, MF_STRING, ID_EJECT_ALL, L"Eject &all");
+    if (nd) AppendMenuW(m, MF_SEPARATOR, 0, NULL);
     AppendMenuW(m, MF_STRING, ID_SETTINGS, L"&Settings\x2026");
     AppendMenuW(m, MF_SEPARATOR, 0, NULL);
     AppendMenuW(m, MF_STRING, ID_EXIT, L"E&xit");

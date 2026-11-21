@@ -745,13 +745,13 @@ static void test_media(void)
     wcscpy_s(d.product, 100, L"Samsung PSSD T7");
     d.bytes = 1000204886016ULL;
     media_label(&d);
-    EXPECT(wcscmp(d.label, L"&E: BACKUP \x2014 Samsung PSSD T7 (1.0 TB)") == 0, "eject menu text: letter, label, product, size");
+    EXPECT(wcscmp(d.label, L"Eject &E: BACKUP \x2014 Samsung PSSD T7 (1.0 TB)") == 0, "eject menu text: letter, label, product, size");
     ZeroMemory(&d, sizeof d);
     wcscpy_s(d.letters, 80, L"F:, G:");
     wcscpy_s(d.product, 100, L"R&D Stick");
     d.bytes = 31914983424ULL;
     media_label(&d);
-    EXPECT(wcscmp(d.label, L"&F:, G: \x2014 R&&D Stick (32 GB)") == 0, "eject menu text: two letters, '&' doubled");
+    EXPECT(wcscmp(d.label, L"Eject &F:, G: \x2014 R&&D Stick (32 GB)") == 0, "eject menu text: two letters, '&' doubled");
     Drive list[MAX_DRIVES];
     int n = media_list(list, MAX_DRIVES);
     wchar_t windir[MAX_PATH] = L"C";

@@ -76,9 +76,9 @@ Two rules can share a corner (say, show the desktop after 1 s and lock after 5 s
 ### Eject media
 
 Safely remove a USB drive, an external USB disk or a memory card without hunting for the "Safely Remove Hardware"
-icon. Right-click the tray icon and open **Eject media**: it lists the drives that can be removed, for example
-"E: BACKUP — Samsung PSSD T7 (1.0 TB)". Pick one to eject it, or **Eject all** when there's more than one. A
-notification says when it's safe to unplug, or why it couldn't be ejected (usually a file still open on it).
+icon. Right-click the tray icon: each drive that can be removed is right there in the menu, for example
+**Eject E: BACKUP — Samsung PSSD T7 (1.0 TB)**, so it's one click, with **Eject all** when there's more than one.
+With nothing to eject the menu is just Settings and Exit. A notification says when it's safe to unplug, or why it couldn't be ejected (usually a file still open on it).
 
 - A disk with several drive letters is one entry, since ejecting it removes them all. The Windows drive and
   internal disks are never listed, and nor is an empty card reader.
@@ -90,7 +90,7 @@ notification says when it's safe to unplug, or why it couldn't be ejected (usual
 ## Tray menu and settings
 
 The tray icon is the Jig Rack icon (a workshop pegboard with a wrench and a screwdriver), or the mouse battery
-meter if you've chosen to show it. Right-click it for **Eject media**, **Settings…** and **Exit** (double-clicking the icon opens Settings too).
+meter if you've chosen to show it. Right-click it for **Eject** (one item per removable drive), **Settings…** and **Exit** (double-clicking the icon opens Settings too).
 
 **Settings** opens a window with a tab for each jig. Every change is saved and takes effect at once; there's
 nothing to apply and no restart. The settings live in `%APPDATA%\Jig Rack\settings.ini` (UTF-16, written by the
@@ -145,7 +145,7 @@ ran) `HKCU\Software\JigRack`.
 | `JigRack.exe --demo-countdown` | Shows the countdown at the first rule's corner, without any action. |
 | `JigRack.exe --snap-settings <folder>` | Opens the Settings window off-screen and saves each tab as a PNG. |
 | `JigRack.exe --devices <log file>` | Lists the Logitech mice found (receiver, slot, name, type, battery) in the log. |
-| `JigRack.exe --media <log file>` | Lists the drives the Eject media menu would offer, in the log. Never ejects. |
+| `JigRack.exe --media <log file>` | Lists the drives the tray menu would offer to eject, in the log. Never ejects. |
 | `JigRack.exe --exit` | Closes the running copy cleanly. |
 | `JigRack.exe --write-ico <file>` | Writes the Jig Rack icon as a multi-size `.ico`. |
 | `--settings <file>` | With any of the above (or none): use that settings file instead of the one in `%APPDATA%`. |
