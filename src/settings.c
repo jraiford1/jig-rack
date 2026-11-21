@@ -213,5 +213,5 @@ void rule_describe(const Rule *r, wchar_t *out, int cch)
     if (r->action == ACT_RUN) swprintf_s(what, 160, L"Run %s", r->command[0] ? r->command : L"(no command yet)");
     else wcscpy_s(what, 160, action_label(r->action));
     swprintf_s(out, cch, L"%s of %s: %s after %g s%s%s", corner_label(r->corner), where, what, r->delayMs / 1000.0,
-               r->countdown ? L"" : L", no countdown", r->warnLow ? L", low-battery warning" : L"");
+               r->countdown ? L"" : L", no countdown", r->countdown && r->warnLow ? L", low-battery warning" : L"");
 }

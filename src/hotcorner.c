@@ -326,7 +326,6 @@ void hotcorner_write_previews(const wchar_t *dir)
         { L"countdown-3",                  3, -1, CORNER_TR, ARGBV(255, 40, 70, 120) },
         { L"countdown-3-warning-top-right", 3, 12, CORNER_TR, ARGBV(255, 40, 70, 120) },
         { L"countdown-2-warning-bottom-left", 2, 18, CORNER_BL, ARGBV(255, 236, 236, 236) },
-        { L"warning-only-top-left",        0,  9, CORNER_TL, ARGBV(255, 236, 236, 236) },
     };
     UINT dpi = GetDpiForSystem();
     for (int i = 0; i < (int)(sizeof s / sizeof s[0]); i++) {
@@ -414,16 +413,17 @@ static void fire(int i)
 
 /* ---------------------------------------------------------------- driving it ---------------------------------- */
 
-/* What rule i's dwell shows now: the countdown number (0 = none) and the battery warning (-1 = none).
-   TRUE if either; remain = ms left. */
+/* What rule i's dwell shows now: the countdown number (0 = none) and, with it, the battery warning (-1 = none).
+   The warning is part of the countdown: without the countdown there's nothing. TRUE if shown; remain = ms left. */
 static BOOL rule_overlay(int i, ULONGLONG now, int *n, int *warn, ULONGLONG *remain)
 {
     *n = 0;
     *warn = -1;
     if (!rule_dwelling(i, now, remain)) return FALSE;
-    if (g_set.rules[i].countdown) *n = (int)((*remain + 999) / 1000);
+    if (!g_set.rules[i].countdown) return FALSE;
+    *n = (int)((*remain + 999) / 1000);
     if (g_set.rules[i].warnLow && mouse_battery_low()) *warn = g_battery.percent;
-    return *n > 0 || *warn >= 0;
+    return TRUE;
 }
 
 void hotcorner_tick(void)
@@ -678,7 +678,7 @@ static void test_low_battery(void)
     EXPECT(!rule_overlay(0, t + 300, &n, &w, &rem), "0.3 s into the dwell: nothing shown yet");
     g_set.rules[0].countdown = 0;
     any = rule_overlay(0, t + 1200, &n, &w, &rem);
-    EXPECT(any && n == 0 && w == 15, "countdown off: the warning alone");
+    EXPECT(!any && n == 0 && w == -1, "countdown off: no warning either (it's part of the countdown)");
     g_set.rules[0].warnLow = 0;
     g_set.rules[0].countdown = 1;
     any = rule_overlay(0, t + 1200, &n, &w, &rem);

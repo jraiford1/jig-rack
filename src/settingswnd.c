@@ -164,23 +164,35 @@ static INT_PTR CALLBACK mouse_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
 
 /* ---------------------------------------------------------------- Hot Corners tab ----------------------------- */
 
+/* Let the rules list scroll sideways just as far as its widest rule (recomputed on every change, and when the DPI
+   changes, so it never keeps the width of a longer description it no longer has). */
+static void rules_fit(HWND lb)
+{
+    HDC dc = GetDC(lb);
+    HGDIOBJ oldFont = SelectObject(dc, (HFONT)SendMessageW(lb, WM_GETFONT, 0, 0));
+    int widest = 0, n = (int)SendMessageW(lb, LB_GETCOUNT, 0, 0);
+    for (int i = 0; i < n; i++) {
+        wchar_t t[700];
+        SIZE sz;
+        if (SendMessageW(lb, LB_GETTEXTLEN, i, 0) >= 700) continue;
+        int len = (int)SendMessageW(lb, LB_GETTEXT, i, (LPARAM)t);
+        if (len > 0 && GetTextExtentPoint32W(dc, t, len, &sz) && sz.cx > widest) widest = sz.cx;
+    }
+    SelectObject(dc, oldFont);
+    ReleaseDC(lb, dc);
+    SendMessageW(lb, LB_SETHORIZONTALEXTENT, widest ? widest + 8 : 0, 0);
+}
+
 static void rules_fill(HWND pg)
 {
     HWND lb = GetDlgItem(pg, IDC_RULES);
     SendMessageW(lb, LB_RESETCONTENT, 0, 0);
-    HDC dc = GetDC(lb);
-    HGDIOBJ oldFont = SelectObject(dc, (HFONT)SendMessageW(lb, WM_GETFONT, 0, 0));
-    int widest = 0;
     for (int i = 0; i < g_set.ruleCount; i++) {
         wchar_t t[700];
         rule_describe(&g_set.rules[i], t, 700);
         SendMessageW(lb, LB_ADDSTRING, 0, (LPARAM)t);
-        SIZE sz;
-        if (GetTextExtentPoint32W(dc, t, (int)wcslen(t), &sz) && sz.cx > widest) widest = sz.cx;
     }
-    SelectObject(dc, oldFont);
-    ReleaseDC(lb, dc);
-    SendMessageW(lb, LB_SETHORIZONTALEXTENT, widest + 8, 0);   /* scroll sideways to read a long rule */
+    rules_fit(lb);
     if (g_rule >= g_set.ruleCount) g_rule = g_set.ruleCount - 1;
     SendMessageW(lb, LB_SETCURSEL, g_rule, 0);
 }
@@ -194,13 +206,7 @@ static void rule_relabel(HWND pg)
     SendMessageW(lb, LB_DELETESTRING, g_rule, 0);
     SendMessageW(lb, LB_INSERTSTRING, g_rule, (LPARAM)t);
     SendMessageW(lb, LB_SETCURSEL, g_rule, 0);
-    HDC dc = GetDC(lb);
-    HGDIOBJ oldFont = SelectObject(dc, (HFONT)SendMessageW(lb, WM_GETFONT, 0, 0));
-    SIZE sz;
-    if (GetTextExtentPoint32W(dc, t, (int)wcslen(t), &sz) && sz.cx + 8 > (int)SendMessageW(lb, LB_GETHORIZONTALEXTENT, 0, 0))
-        SendMessageW(lb, LB_SETHORIZONTALEXTENT, sz.cx + 8, 0);
-    SelectObject(dc, oldFont);
-    ReleaseDC(lb, dc);
+    rules_fit(lb);
 }
 
 static void rule_fill_editor(HWND pg)
@@ -244,6 +250,7 @@ static void rule_fill_editor(HWND pg)
         SetDlgItemTextW(pg, IDC_RULE_DELAY, d);
         CheckDlgButton(pg, IDC_RULE_COUNTDOWN, r->countdown ? BST_CHECKED : BST_UNCHECKED);
         CheckDlgButton(pg, IDC_RULE_WARN, r->warnLow ? BST_CHECKED : BST_UNCHECKED);
+        EnableWindow(GetDlgItem(pg, IDC_RULE_WARN), r->countdown);   /* the warning is part of the countdown */
         EnableWindow(GetDlgItem(pg, IDC_RULE_COMMAND), r->action == ACT_RUN);
         EnableWindow(GetDlgItem(pg, IDC_RULE_CMDLABEL), r->action == ACT_RUN);
     } else {
@@ -287,6 +294,9 @@ static INT_PTR CALLBACK corners_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         g_pages[PAGE_CORNERS] = h;
         return TRUE;
     }
+    case WM_DPICHANGED_AFTERPARENT:                    /* the list's font changed size with the monitor */
+        rules_fit(GetDlgItem(h, IDC_RULES));
+        break;
     case WM_COMMAND: {
         if (g_filling) break;
         int id = LOWORD(wp), code = HIWORD(wp);
@@ -370,6 +380,7 @@ static INT_PTR CALLBACK corners_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             break;
         case IDC_RULE_COUNTDOWN:
             r->countdown = IsDlgButtonChecked(h, IDC_RULE_COUNTDOWN) == BST_CHECKED;
+            EnableWindow(GetDlgItem(h, IDC_RULE_WARN), r->countdown);
             break;
         case IDC_RULE_WARN:
             r->warnLow = IsDlgButtonChecked(h, IDC_RULE_WARN) == BST_CHECKED;

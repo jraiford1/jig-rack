@@ -85,5 +85,5 @@ BEGIN
     LTEXT           "&Delay (seconds):", -1, 15, 172, 56, 8
     EDITTEXT        IDC_RULE_DELAY, 72, 170, 36, 12, ES_AUTOHSCROLL
     AUTOCHECKBOX    "Show the c&ountdown", IDC_RULE_COUNTDOWN, 122, 171, 120, 10
-    AUTOCHECKBOX    "Warn if the mouse &battery is low (set the level on the Mouse tab)", IDC_RULE_WARN, 15, 188, 266, 10
+    AUTOCHECKBOX    "Warn if mouse &battery is low", IDC_RULE_WARN, 132, 185, 140, 10
 END

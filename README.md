@@ -33,7 +33,7 @@ Hover for the details (for example "Mouse battery 63% - charging"). With no mous
 the tray shows the Jig Rack icon instead.
 
 **Low battery at or below** (on the same tab) sets what "low" means: the meter turns red there, and hot corner
-rules can warn you (see below).
+countdowns can warn you (see below).
 
 A monitor thread keeps the chosen mouse's receiver open, so the mouse's own battery events show up at once; a
 backstop check (one 20-byte request and its reply) runs every 5 s. If the receiver is unplugged it retries every
@@ -60,10 +60,10 @@ picks:
 - **Delay**: how long the cursor has to rest there, in seconds (decimals are fine).
 - **Show the countdown**: a white, black-outlined countdown next to the corner, from 0.5 s in. It's a layered,
   click-through window that never takes focus.
-- **Warn if the mouse battery is low**: while you rest in the corner, a red line next to the countdown says
+- **Warn if mouse battery is low** (part of the countdown, so only with it on): a red line with the countdown says
   "Mouse battery 12% — charge it" when the chosen mouse is at or below the Mouse tab's low level and isn't
   charging (the last reading counts, even while the mouse sleeps). Handy on the corner you use to lock the PC
-  before walking away. It shows even with the countdown turned off.
+  before walking away.
 
 Two rules can share a corner (say, show the desktop after 1 s and lock after 5 s); each fires at its own time.
 
