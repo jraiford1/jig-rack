@@ -14,6 +14,7 @@
 #define WM_TRAY     (WM_APP + 1)     /* tray icon callback */
 #define WM_RESULT   (WM_APP + 2)     /* monitor thread -> tray window: lp = Battery* (HeapAlloc'd) */
 #define WM_DEVICES  (WM_APP + 3)     /* device search -> settings window: lp = DeviceList* (HeapAlloc'd) */
+#define WM_EJECTED  (WM_APP + 4)     /* eject worker -> tray window: lp = EjectResult* (HeapAlloc'd) */
 
 /* ---------------------------------------------------------------- log (main.c) -------------------------------- */
 void trace(const char *fmt, ...);
@@ -121,3 +122,21 @@ void tray_refresh(void);                        /* main.c: redraw the tray icon 
 void settings_window_open(HINSTANCE inst);      /* settingswnd.c */
 HWND settings_window(void);
 int  settings_window_snapshots(HINSTANCE inst, const wchar_t *dir);   /* --snap-settings: PNG of each tab */
+
+/* ---------------------------------------------------------------- eject media (media.c) ----------------------- */
+#define MAX_DRIVES 26
+typedef struct {
+    DWORD devType, devNum;      /* the disk (STORAGE_DEVICE_NUMBER) */
+    DWORD letterMask;           /* bit 0 = A: */
+    int removable;              /* DRIVE_REMOVABLE (a stick or card) rather than a USB disk */
+    ULONGLONG bytes;            /* total size of its volumes */
+    wchar_t letters[80];        /* "E:" or "E:, F:" */
+    wchar_t volume[64];         /* the volume label, when there's one volume */
+    wchar_t product[100];       /* "Samsung PSSD T7" */
+    wchar_t label[200];         /* menu text */
+} Drive;
+typedef struct { int ok; wchar_t title[64]; wchar_t text[256]; } EjectResult;
+int media_list(Drive *out, int max);                 /* the drives that can be safely removed */
+void media_label(Drive *d);                          /* fills d->label from the rest */
+BOOL media_eject(const Drive *d, wchar_t *why, int cch);
+BOOL media_eject_async(HWND notify, const Drive *list, int n);  /* FALSE if one is already running */

@@ -2,6 +2,7 @@
  * Jig Rack -- a rack of small, purpose-built Windows tools ("jigs") in one notification-area app.
  *   - Mouse battery jig (mouse.c): battery level and charging state of a Logitech wireless mouse, without G HUB.
  *   - Hot corner jig (hotcorner.c): rest the cursor in a screen corner to lock the PC, sleep, show the desktop...
+ *   - Eject media jig (media.c): safely remove a USB drive or memory card from the tray menu.
  * Right-click the tray icon for Settings (settingswnd.c), saved in %APPDATA%\Jig Rack\settings.ini (settings.c).
  *
  * Copyright (C) 2026 Jon Raiford
@@ -19,8 +20,10 @@
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "comctl32.lib")
 
-#define ID_SETTINGS 1
-#define ID_EXIT     2
+#define ID_SETTINGS  1
+#define ID_EXIT      2
+#define ID_EJECT_ALL 3
+#define ID_EJECT     100                           /* + the drive's index in the menu's list */
 
 /* ---------------------------------------------------------------- log ----------------------------------------- */
 /* What the app saw (settings, receiver, device, events, state changes, corners, actions), next to the exe.
@@ -94,11 +97,33 @@ static void add_tray(HWND hwnd)
     tray_refresh();
 }
 
+/* A notification from the tray icon (the eject result). */
+static void tray_notify(BOOL ok, const wchar_t *title, const wchar_t *text)
+{
+    if (!g_nid.cbSize) return;
+    NOTIFYICONDATAW n = g_nid;
+    n.uFlags = NIF_INFO;
+    n.dwInfoFlags = ok ? NIIF_INFO : NIIF_WARNING;
+    wcscpy_s(n.szInfoTitle, ARRAYSIZE(n.szInfoTitle), title);
+    wcsncpy_s(n.szInfo, ARRAYSIZE(n.szInfo), text, _TRUNCATE);
+    Shell_NotifyIconW(NIM_MODIFY, &n);
+}
+
 static void tray_menu(HWND hwnd)
 {
     POINT pt;
     GetCursorPos(&pt);
+    static Drive drives[MAX_DRIVES];
+    int nd = media_list(drives, MAX_DRIVES);
+    HMENU eject = CreatePopupMenu();
+    for (int i = 0; i < nd; i++) AppendMenuW(eject, MF_STRING, ID_EJECT + i, drives[i].label);
+    if (!nd) AppendMenuW(eject, MF_STRING | MF_GRAYED, 0, L"No removable drives");
+    else if (nd > 1) {
+        AppendMenuW(eject, MF_SEPARATOR, 0, NULL);
+        AppendMenuW(eject, MF_STRING, ID_EJECT_ALL, L"Eject &all");
+    }
     HMENU m = CreatePopupMenu();
+    AppendMenuW(m, MF_POPUP, (UINT_PTR)eject, L"&Eject media");
     AppendMenuW(m, MF_STRING, ID_SETTINGS, L"&Settings\x2026");
     AppendMenuW(m, MF_SEPARATOR, 0, NULL);
     AppendMenuW(m, MF_STRING, ID_EXIT, L"E&xit");
@@ -108,6 +133,12 @@ static void tray_menu(HWND hwnd)
     DestroyMenu(m);
     if (cmd == ID_SETTINGS) settings_window_open(g_inst);
     else if (cmd == ID_EXIT) DestroyWindow(hwnd);
+    else if (cmd == ID_EJECT_ALL || (cmd >= ID_EJECT && cmd < ID_EJECT + nd)) {
+        const Drive *list = cmd == ID_EJECT_ALL ? drives : &drives[cmd - ID_EJECT];
+        int n = cmd == ID_EJECT_ALL ? nd : 1;
+        for (int i = 0; i < n; i++) trace("eject %ls (%ls)", list[i].letters, list[i].product);
+        if (!media_eject_async(hwnd, list, n)) tray_notify(FALSE, L"Still ejecting", L"Wait for the last eject to finish.");
+    }
 }
 
 static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
@@ -125,6 +156,13 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         g_battery = *b;
         HeapFree(GetProcessHeap(), 0, b);
         tray_refresh();
+        return 0;
+    }
+    case WM_EJECTED: {
+        EjectResult *r = (EjectResult *)lp;
+        trace("eject: %ls - %ls", r->title, r->text);
+        tray_notify(r->ok, r->title, r->text);
+        HeapFree(GetProcessHeap(), 0, r);
         return 0;
     }
     case WM_TRAY:
@@ -188,6 +226,16 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show_cmd)
         open_log(v);
         DeviceList l;
         trace("found %d Logitech mouse/mice", mouse_list_devices(&l));
+        CloseHandle(g_log);
+        return 0;
+    }
+    if (argv && (v = arg_after(argc, argv, L"--media")) != NULL) {
+        open_log(v);
+        Drive d[MAX_DRIVES];
+        int n = media_list(d, MAX_DRIVES);
+        trace("found %d removable drive(s)", n);
+        for (int i = 0; i < n; i++)
+            trace("  disk %lu: %ls  [%ls]%s", d[i].devNum, d[i].label, d[i].letters, d[i].removable ? " removable" : "");
         CloseHandle(g_log);
         return 0;
     }

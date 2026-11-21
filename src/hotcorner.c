@@ -735,6 +735,34 @@ static void test_settings_file(void)
     settings_use_file(old);
 }
 
+/* Eject media: the menu text, and that the list never offers the Windows drive or an internal disk. Never ejects. */
+static void test_media(void)
+{
+    Drive d;
+    ZeroMemory(&d, sizeof d);
+    wcscpy_s(d.letters, 80, L"E:");
+    wcscpy_s(d.volume, 64, L"BACKUP");
+    wcscpy_s(d.product, 100, L"Samsung PSSD T7");
+    d.bytes = 1000204886016ULL;
+    media_label(&d);
+    EXPECT(wcscmp(d.label, L"&E: BACKUP \x2014 Samsung PSSD T7 (1.0 TB)") == 0, "eject menu text: letter, label, product, size");
+    ZeroMemory(&d, sizeof d);
+    wcscpy_s(d.letters, 80, L"F:, G:");
+    wcscpy_s(d.product, 100, L"R&D Stick");
+    d.bytes = 31914983424ULL;
+    media_label(&d);
+    EXPECT(wcscmp(d.label, L"&F:, G: \x2014 R&&D Stick (32 GB)") == 0, "eject menu text: two letters, '&' doubled");
+    Drive list[MAX_DRIVES];
+    int n = media_list(list, MAX_DRIVES);
+    wchar_t windir[MAX_PATH] = L"C";
+    GetWindowsDirectoryW(windir, MAX_PATH);
+    BOOL sys = FALSE;
+    for (int i = 0; i < n; i++) sys |= (list[i].letterMask >> (towupper(windir[0]) - L'A')) & 1;
+    char what[96];
+    sprintf_s(what, sizeof what, "eject list (%d drive(s) now): never the Windows drive", n);
+    EXPECT(n >= 0 && !sys, what);
+}
+
 int hotcorner_selftest(void)
 {
     Settings saved = g_set;
@@ -746,6 +774,7 @@ int hotcorner_selftest(void)
     test_more_rules(m, n);
     test_low_battery();
     test_settings_file();
+    test_media();
     trace("selftest done: %d failure(s)", g_fails);
     g_set = saved;
     return g_fails;

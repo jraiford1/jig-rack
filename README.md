@@ -73,10 +73,24 @@ Two rules can share a corner (say, show the desktop after 1 s and lock after 5 s
 - A click cancels (so a window's close button in that corner still works). After an action or a cancel, the cursor
   has to leave the corner before that rule can fire again, so coming back from the lock screen doesn't lock again.
 
+### Eject media
+
+Safely remove a USB drive, an external USB disk or a memory card without hunting for the "Safely Remove Hardware"
+icon. Right-click the tray icon and open **Eject media**: it lists the drives that can be removed, for example
+"E: BACKUP — Samsung PSSD T7 (1.0 TB)". Pick one to eject it, or **Eject all** when there's more than one. A
+notification says when it's safe to unplug, or why it couldn't be ejected (usually a file still open on it).
+
+- A disk with several drive letters is one entry, since ejecting it removes them all. The Windows drive and
+  internal disks are never listed, and nor is an empty card reader.
+- Ejecting asks Windows to remove the device, just as "Safely Remove Hardware" does, so Windows makes sure nothing
+  has a file open and flushes the drive first. A card in a built-in reader is dismounted and its media ejected,
+  leaving the reader. It runs in the background and retries for a moment if a file was only just closed.
+- The list is read each time the menu opens; there's nothing running in between.
+
 ## Tray menu and settings
 
 The tray icon is the Jig Rack icon (a workshop pegboard with a wrench and a screwdriver), or the mouse battery
-meter if you've chosen to show it. Right-click it for **Settings…** and **Exit** (double-clicking the icon opens Settings too).
+meter if you've chosen to show it. Right-click it for **Eject media**, **Settings…** and **Exit** (double-clicking the icon opens Settings too).
 
 **Settings** opens a window with a tab for each jig. Every change is saved and takes effect at once; there's
 nothing to apply and no restart. The settings live in `%APPDATA%\Jig Rack\settings.ini` (UTF-16, written by the
@@ -106,6 +120,7 @@ builds again.
 | `src\settingswnd.c` | The Settings window |
 | `src\mouse.c` | The mouse battery jig (HID++) |
 | `src\hotcorner.c` | The hot corner jig, its countdown and its self-test |
+| `src\media.c` | The eject media jig |
 | `src\icons.c` | The tray icons (GDI+), previews and the `.ico` |
 
 ## Install
@@ -125,11 +140,12 @@ ran) `HKCU\Software\JigRack`.
 
 | Command | What it does |
 |---|---|
-| `JigRack.exe --selftest <log file>` | Runs the hot corner rules on scripted cursor timelines against your real monitor layout, and a settings-file round trip, and writes the results to the log. Never acts. Expect `0 failure(s)`. |
+| `JigRack.exe --selftest <log file>` | Runs the hot corner rules on scripted cursor timelines against your real monitor layout, a settings-file round trip and the eject menu's text, and writes the results to the log. Never acts. Expect `0 failure(s)`. |
 | `JigRack.exe --preview <folder>` | Writes the tray icons and the countdown overlay (with and without the battery warning) as PNGs and exits. |
 | `JigRack.exe --demo-countdown` | Shows the countdown at the first rule's corner, without any action. |
 | `JigRack.exe --snap-settings <folder>` | Opens the Settings window off-screen and saves each tab as a PNG. |
 | `JigRack.exe --devices <log file>` | Lists the Logitech mice found (receiver, slot, name, type, battery) in the log. |
+| `JigRack.exe --media <log file>` | Lists the drives the Eject media menu would offer, in the log. Never ejects. |
 | `JigRack.exe --exit` | Closes the running copy cleanly. |
 | `JigRack.exe --write-ico <file>` | Writes the Jig Rack icon as a multi-size `.ico`. |
 | `--settings <file>` | With any of the above (or none): use that settings file instead of the one in `%APPDATA%`. |
