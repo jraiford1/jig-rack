@@ -172,14 +172,16 @@ static GpBitmap *render_mouse(int size, int level, ARGB fill, BOOL bolt, const w
     return bmp;
 }
 
-/* Status colour: blue charging, red low (<=20%), yellow medium (<=50%), green full. */
+/* Status colour: blue charging, red low (at or below the "low battery" level, 20% unless set), yellow medium
+   (<=50%), green full. */
 #define COL_CHARGING ARGBV(255, 10, 132, 255)
 #define COL_LOW      ARGBV(255, 255, 59, 48)
 #define COL_MED      ARGBV(255, 255, 204, 0)
 #define COL_FULL     ARGBV(255, 48, 199, 89)
 static ARGB status_color(int percent, BOOL charging)
 {
-    return charging ? COL_CHARGING : percent <= 20 ? COL_LOW : percent <= 50 ? COL_MED : COL_FULL;
+    int low = g_set.lowPercent > 0 ? g_set.lowPercent : 20;
+    return charging ? COL_CHARGING : percent <= low ? COL_LOW : percent <= 50 ? COL_MED : COL_FULL;
 }
 
 static int tray_size(void)

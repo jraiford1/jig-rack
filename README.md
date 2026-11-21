@@ -24,13 +24,16 @@ small mouse above a horizontal battery with the percentage in it:
 | Colour | Meaning |
 |---|---|
 | Blue | Charging |
-| Red | 20% or less |
+| Red | Low: at or below the **Low battery** level (20% unless you change it) |
 | Yellow | 50% or less |
 | Green | Above 50% |
 | Grey `?` | No reading yet (receiver unplugged, mouse asleep or off) |
 
 Hover for the details (for example "Mouse battery 63% - charging"). With no mouse chosen, or the meter turned off,
 the tray shows the Jig Rack icon instead.
+
+**Low battery at or below** (on the same tab) sets what "low" means: the meter turns red there, and hot corner
+countdowns can warn you (see below).
 
 A monitor thread keeps the chosen mouse's receiver open, so the mouse's own battery events show up at once; a
 backstop check (one 20-byte request and its reply) runs every 5 s. If the receiver is unplugged it retries every
@@ -57,6 +60,10 @@ picks:
 - **Delay**: how long the cursor has to rest there, in seconds (decimals are fine).
 - **Show the countdown**: a white, black-outlined countdown next to the corner, from 0.5 s in. It's a layered,
   click-through window that never takes focus.
+- **Warn if mouse battery is low** (part of the countdown, so only with it on): a red line with the countdown says
+  "Mouse battery 12% — charge it" when the chosen mouse is at or below the Mouse tab's low level and isn't
+  charging (the last reading counts, even while the mouse sleeps). Handy on the corner you use to lock the PC
+  before walking away.
 
 Two rules can share a corner (say, show the desktop after 1 s and lock after 5 s); each fires at its own time.
 
@@ -119,7 +126,7 @@ ran) `HKCU\Software\JigRack`.
 | Command | What it does |
 |---|---|
 | `JigRack.exe --selftest <log file>` | Runs the hot corner rules on scripted cursor timelines against your real monitor layout, and a settings-file round trip, and writes the results to the log. Never acts. Expect `0 failure(s)`. |
-| `JigRack.exe --preview <folder>` | Writes the tray icons as PNGs and exits. |
+| `JigRack.exe --preview <folder>` | Writes the tray icons and the countdown overlay (with and without the battery warning) as PNGs and exits. |
 | `JigRack.exe --demo-countdown` | Shows the countdown at the first rule's corner, without any action. |
 | `JigRack.exe --snap-settings <folder>` | Opens the Settings window off-screen and saves each tab as a PNG. |
 | `JigRack.exe --devices <log file>` | Lists the Logitech mice found (receiver, slot, name, type, battery) in the log. |

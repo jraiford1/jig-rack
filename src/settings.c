@@ -22,6 +22,18 @@ static const wchar_t *ACTION_NAMES[ACTIONS] = { L"Lock the PC", L"Sleep", L"Turn
                                                  L"Task View", L"Run a command" };
 static const wchar_t *MOUSE_KEYS[MOUSE_TYPES] = { L"none", L"logitech" };
 
+BOOL mouse_chosen(const Settings *s)
+{
+    return s->mouseType == MOUSE_LOGITECH && s->productId;
+}
+
+/* Worth a warning: a mouse is chosen, it isn't charging, and its last reading (even while it sleeps) is low. */
+BOOL mouse_battery_low(void)
+{
+    const Battery *b = &g_battery;
+    return mouse_chosen(&g_set) && b->ok && !b->charging && b->percent <= g_set.lowPercent;
+}
+
 const wchar_t *corner_label(int c) { return c >= 0 && c < CORNERS ? CORNER_NAMES[c] : L"?"; }
 const wchar_t *action_label(int a) { return a >= 0 && a < ACTIONS ? ACTION_NAMES[a] : L"?"; }
 
@@ -54,6 +66,7 @@ void settings_defaults(Settings *s)
     ZeroMemory(s, sizeof *s);
     s->mouseType = MOUSE_NONE;
     s->showMeter = 1;
+    s->lowPercent = 20;
     s->ruleCount = 1;
     rule_defaults(&s->rules[0]);
 }
@@ -94,6 +107,9 @@ void settings_load(Settings *s)
     s->deviceIndex = get_int(L"Mouse", L"Index", 1);
     get_str(L"Mouse", L"Name", s->deviceName, 64);
     s->showMeter = get_int(L"Mouse", L"ShowMeter", 1) != 0;
+    s->lowPercent = get_int(L"Mouse", L"Low", 20);
+    if (s->lowPercent < 1) s->lowPercent = 1;
+    if (s->lowPercent > 99) s->lowPercent = 99;
 
     int n = get_int(L"HotCorners", L"Count", 0);
     if (n < 0) n = 0;
@@ -115,6 +131,7 @@ void settings_load(Settings *s)
             r->delayMs = (int)(secs * 1000 + 0.5);
         }
         r->countdown = get_int(sec, L"Countdown", 1) != 0;
+        r->warnLow = get_int(sec, L"WarnLow", 0) != 0;
         get_str(sec, L"Monitor", r->monitor, 256);
         get_str(sec, L"MonitorName", r->monitorName, 64);
         get_str(sec, L"Command", r->command, 512);
@@ -161,6 +178,7 @@ BOOL settings_save(const Settings *s)
     ok &= put_int(L"Mouse", L"Index", s->deviceIndex);
     ok &= put(L"Mouse", L"Name", s->deviceName);
     ok &= put_int(L"Mouse", L"ShowMeter", s->showMeter);
+    ok &= put_int(L"Mouse", L"Low", s->lowPercent);
     ok &= put_int(L"HotCorners", L"Count", s->ruleCount);
     for (int i = 0; i < MAX_RULES; i++) {
         wchar_t sec[32];
@@ -176,6 +194,7 @@ BOOL settings_save(const Settings *s)
         ok &= put(sec, L"Action", ACTION_KEYS[r->action]);
         ok &= put(sec, L"Delay", d);
         ok &= put_int(sec, L"Countdown", r->countdown);
+        ok &= put_int(sec, L"WarnLow", r->warnLow);
         ok &= put(sec, L"Command", r->command);
     }
     WritePrivateProfileStringW(NULL, NULL, NULL, g_file);   /* flush the cache */
@@ -193,6 +212,6 @@ void rule_describe(const Rule *r, wchar_t *out, int cch)
     wchar_t what[160];
     if (r->action == ACT_RUN) swprintf_s(what, 160, L"Run %s", r->command[0] ? r->command : L"(no command yet)");
     else wcscpy_s(what, 160, action_label(r->action));
-    swprintf_s(out, cch, L"%s of %s: %s after %g s%s", corner_label(r->corner), where, what, r->delayMs / 1000.0,
-               r->countdown ? L"" : L" (no countdown)");
+    swprintf_s(out, cch, L"%s of %s: %s after %g s%s%s", corner_label(r->corner), where, what, r->delayMs / 1000.0,
+               r->countdown ? L"" : L", no countdown", r->countdown && r->warnLow ? L", low-battery warning" : L"");
 }

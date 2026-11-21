@@ -58,7 +58,10 @@ BEGIN
     LISTBOX         IDC_MOUSE_LIST, 7, 41, 282, 92, LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_BORDER | WS_TABSTOP
     LTEXT           "", IDC_MOUSE_STATUS, 7, 139, 224, 18
     PUSHBUTTON      "&Refresh", IDC_MOUSE_REFRESH, 239, 138, 50, 14
-    AUTOCHECKBOX    "&Show the mouse battery meter in place of the Jig Rack icon", IDC_MOUSE_METER, 7, 166, 282, 10
+    AUTOCHECKBOX    "&Show the mouse battery meter in place of the Jig Rack icon", IDC_MOUSE_METER, 7, 164, 282, 10
+    LTEXT           "&Low battery at or below:", IDC_MOUSE_LOWLABEL, 7, 185, 84, 8
+    EDITTEXT        IDC_MOUSE_LOW, 92, 183, 24, 12, ES_NUMBER
+    LTEXT           "%  (the meter turns red; hot corners can warn)", IDC_MOUSE_LOWNOTE, 120, 185, 170, 8
 END
 
 IDD_PAGE_CORNERS DIALOGEX 0, 0, 296, 208
@@ -67,19 +70,20 @@ EXSTYLE WS_EX_CONTROLPARENT
 FONT 9, "Segoe UI", 400, 0, 0x1
 BEGIN
     LTEXT           "&Rules:", -1, 7, 7, 100, 8
-    LISTBOX         IDC_RULES, 7, 18, 248, 74, LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_HSCROLL | WS_BORDER | WS_TABSTOP
+    LISTBOX         IDC_RULES, 7, 18, 248, 62, LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_HSCROLL | WS_BORDER | WS_TABSTOP
     PUSHBUTTON      "+", IDC_RULE_ADD, 261, 18, 28, 14
     PUSHBUTTON      "-", IDC_RULE_DEL, 261, 35, 28, 14
-    GROUPBOX        "Selected rule", IDC_RULE_GROUP, 7, 97, 282, 105
-    LTEXT           "&Corner:", -1, 15, 113, 52, 8
-    COMBOBOX        IDC_RULE_CORNER, 72, 111, 110, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT           "&Where:", -1, 15, 131, 52, 8
-    COMBOBOX        IDC_RULE_WHERE, 72, 129, 209, 120, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT           "&Action:", -1, 15, 149, 52, 8
-    COMBOBOX        IDC_RULE_ACTION, 72, 147, 110, 100, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT           "Co&mmand:", IDC_RULE_CMDLABEL, 15, 167, 52, 8
-    EDITTEXT        IDC_RULE_COMMAND, 72, 165, 209, 12, ES_AUTOHSCROLL
-    LTEXT           "&Delay (seconds):", -1, 15, 185, 56, 8
-    EDITTEXT        IDC_RULE_DELAY, 72, 183, 36, 12, ES_AUTOHSCROLL
-    AUTOCHECKBOX    "Show the c&ountdown", IDC_RULE_COUNTDOWN, 122, 184, 120, 10
+    GROUPBOX        "Selected rule", IDC_RULE_GROUP, 7, 84, 282, 120
+    LTEXT           "&Corner:", -1, 15, 100, 52, 8
+    COMBOBOX        IDC_RULE_CORNER, 72, 98, 110, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "&Where:", -1, 15, 118, 52, 8
+    COMBOBOX        IDC_RULE_WHERE, 72, 116, 209, 120, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "&Action:", -1, 15, 136, 52, 8
+    COMBOBOX        IDC_RULE_ACTION, 72, 134, 110, 100, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Co&mmand:", IDC_RULE_CMDLABEL, 15, 154, 52, 8
+    EDITTEXT        IDC_RULE_COMMAND, 72, 152, 209, 12, ES_AUTOHSCROLL
+    LTEXT           "&Delay (seconds):", -1, 15, 172, 56, 8
+    EDITTEXT        IDC_RULE_DELAY, 72, 170, 36, 12, ES_AUTOHSCROLL
+    AUTOCHECKBOX    "Show the c&ountdown", IDC_RULE_COUNTDOWN, 122, 171, 120, 10
+    AUTOCHECKBOX    "Warn if mouse &battery is low", IDC_RULE_WARN, 132, 185, 140, 10
 END

@@ -32,6 +32,7 @@ typedef struct {
     int action;                 /* ACT_* */
     int delayMs;                /* how long the cursor rests in the corner before the action */
     int countdown;              /* show the on-screen countdown */
+    int warnLow;                /* while dwelling, warn if the mouse battery is low */
     wchar_t monitor[256];       /* WHERE_MONITOR: the monitor's device path (stable across docking) */
     wchar_t monitorName[64];    /* its friendly name, for showing it while it isn't connected */
     wchar_t command[512];       /* ACT_RUN */
@@ -43,11 +44,13 @@ typedef struct {
     int deviceIndex;            /* its HID++ device index there: 1..6 on a receiver, 255 wired */
     wchar_t deviceName[64];     /* for display */
     int showMeter;              /* tray shows the battery meter instead of the Jig Rack icon */
+    int lowPercent;             /* "low battery": at or below this the meter is red and hot corners can warn */
     int ruleCount;
     Rule rules[MAX_RULES];
 } Settings;
 
 extern Settings g_set;
+BOOL mouse_chosen(const Settings *s);           /* a mouse is picked */
 void settings_defaults(Settings *s);
 void settings_load(Settings *s);
 BOOL settings_save(const Settings *s);
@@ -67,6 +70,9 @@ typedef struct {
     int stale;                  /* mouse not answering now; percent is the last reading */
     wchar_t state[32];
 } Battery;
+
+extern Battery g_battery;                       /* main.c: the last reading of the chosen mouse */
+BOOL mouse_battery_low(void);                   /* chosen, not charging, last reading <= g_set.lowPercent */
 
 typedef struct {
     WORD productId;
@@ -108,6 +114,7 @@ void hotcorner_tick(void);
 void hotcorner_layout_changed(void);
 int  hotcorner_selftest(void);                  /* returns the number of failures */
 void hotcorner_demo_countdown(void);
+void hotcorner_write_previews(const wchar_t *dir);   /* --preview: the countdown overlay, with and without the warning */
 
 /* ---------------------------------------------------------------- tray + settings window -------------------- */
 void tray_refresh(void);                        /* main.c: redraw the tray icon from g_set and the last reading */
