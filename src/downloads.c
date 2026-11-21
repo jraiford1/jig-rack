@@ -3,7 +3,7 @@
  *
  * A Downloads button on the taskbar of every monitor (or just the main one), like the Downloads stack in a Mac's
  * Dock: click it and a panel pops up above it with the newest files in the Downloads folder. Click a file to open
- * it, drag it out to copy or move it, or right-click it for "Show in folder".
+ * it, drag it out to copy or move it, or right-click it for Explorer's full menu (with "Show in folder" on top).
  *
  * Windows puts a window's taskbar button on the taskbar of the monitor the window is on, so each monitor gets one
  * small window of its own: invisible and click-through while it's just the button, and the panel itself when the button is clicked. All of them carry
@@ -179,6 +179,9 @@ static DlItem g_items[DL_SHOWN_MAX];
 static int g_nitems;
 static wchar_t g_folder[MAX_PATH];
 static BOOL g_dragging;
+static BOOL g_busy;                     /* a file's menu or its command is running: don't close under it */
+static IContextMenu2 *g_cm2;            /* Explorer's menu while it's up, for the items it draws itself */
+static IContextMenu3 *g_cm3;
 static HWND g_closedBy;                 /* the button whose panel just closed by losing the focus, and when */
 static ULONGLONG g_closedAt;
 static HWND g_previous;                 /* the window that had the focus before the panel opened */
@@ -415,6 +418,55 @@ static void panel_dismiss(void)
     if (to) SetForegroundWindow(to);
 }
 
+/* Explorer's full right-click menu for a file (Open with, Send to, Copy, Delete, Properties...), with "Show in
+   folder" on top. The panel closes after a command, and stays open if the menu is dismissed. */
+static void item_menu(HWND w, int i, POINT pt)
+{
+    wchar_t path[MAX_PATH * 2];
+    item_path(i, path, ARRAYSIZE(path));
+    IShellItem *si = NULL;
+    IContextMenu *cm = NULL;
+    if (FAILED(SHCreateItemFromParsingName(path, NULL, &IID_IShellItem, (void **)&si))) return;
+    if (FAILED(IShellItem_BindToHandler(si, NULL, &BHID_SFUIObject, &IID_IContextMenu, (void **)&cm))) {
+        IShellItem_Release(si);
+        return;
+    }
+    enum { SHOW_IN_FOLDER = 1, FIRST = 100, LAST = 0x7FFF };
+    HMENU m = CreatePopupMenu();
+    AppendMenuW(m, MF_STRING, SHOW_IN_FOLDER, L"Show in &folder");
+    AppendMenuW(m, MF_SEPARATOR, 0, NULL);
+    UINT flags = CMF_NORMAL | (GetKeyState(VK_SHIFT) < 0 ? CMF_EXTENDEDVERBS : 0);   /* Shift: the extra verbs */
+    IContextMenu_QueryContextMenu(cm, m, 2, FIRST, LAST, flags);
+    IContextMenu_QueryInterface(cm, &IID_IContextMenu3, (void **)&g_cm3);
+    if (!g_cm3) IContextMenu_QueryInterface(cm, &IID_IContextMenu2, (void **)&g_cm2);
+    g_busy = TRUE;
+    int cmd = TrackPopupMenuEx(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, w, NULL);
+    if (g_cm3) { IContextMenu3_Release(g_cm3); g_cm3 = NULL; }
+    if (g_cm2) { IContextMenu2_Release(g_cm2); g_cm2 = NULL; }
+    if (cmd >= FIRST) {
+        CMINVOKECOMMANDINFOEX ici = { sizeof ici };
+        ici.fMask = CMIC_MASK_UNICODE | CMIC_MASK_PTINVOKE | CMIC_MASK_ASYNCOK |
+                    (GetKeyState(VK_CONTROL) < 0 ? CMIC_MASK_CONTROL_DOWN : 0) |
+                    (GetKeyState(VK_SHIFT) < 0 ? CMIC_MASK_SHIFT_DOWN : 0);
+        ici.hwnd = w;
+        ici.lpVerb = MAKEINTRESOURCEA(cmd - FIRST);
+        ici.lpVerbW = MAKEINTRESOURCEW(cmd - FIRST);
+        ici.lpDirectoryW = g_folder;
+        ici.nShow = SW_SHOWNORMAL;
+        ici.ptInvoke = pt;
+        wchar_t verb[64] = L"";
+        IContextMenu_GetCommandString(cm, cmd - FIRST, GCS_VERBW, NULL, (LPSTR)verb, 64);
+        HRESULT hr = IContextMenu_InvokeCommand(cm, (CMINVOKECOMMANDINFO *)&ici);
+        trace("downloads: %ls on %ls -> 0x%08lx", verb[0] ? verb : L"(menu item)", g_items[i].name, hr);
+    }
+    g_busy = FALSE;
+    DestroyMenu(m);
+    IContextMenu_Release(cm);
+    IShellItem_Release(si);
+    if (cmd == SHOW_IN_FOLDER) open_item(i, TRUE);
+    else if (cmd || GetForegroundWindow() != w) panel_close();
+}
+
 static LRESULT CALLBACK button_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp)
 {
     switch (msg) {
@@ -427,7 +479,7 @@ static LRESULT CALLBACK button_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp)
                 g_previous = (HWND)lp;
                 panel_open(w);
             }
-        } else if (g_open == w && !g_dragging) {
+        } else if (g_open == w && !g_dragging && !g_busy) {
             panel_close();
             g_closedBy = w;
             g_closedAt = GetTickCount64();
@@ -450,21 +502,38 @@ static LRESULT CALLBACK button_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp)
         if (n->code == LVN_ITEMACTIVATE) open_item(((NMITEMACTIVATE *)lp)->iItem, FALSE);
         else if (n->code == LVN_BEGINDRAG) drag_item(w, ((NMLISTVIEW *)lp)->iItem);
         else if (n->code == LVN_KEYDOWN && ((NMLVKEYDOWN *)lp)->wVKey == VK_ESCAPE) panel_dismiss();
-        else if (n->code == NM_RCLICK) {
-            int i = ((NMITEMACTIVATE *)lp)->iItem;
-            if (i < 0) break;
-            POINT pt;
-            GetCursorPos(&pt);
-            HMENU m = CreatePopupMenu();
-            AppendMenuW(m, MF_STRING, 1, L"&Open");
-            AppendMenuW(m, MF_STRING, 2, L"Show in &folder");
-            SetMenuDefaultItem(m, 1, FALSE);
-            int cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, w, NULL);
-            DestroyMenu(m);
-            if (cmd) open_item(i, cmd == 2);
-        }
         return 0;
     }
+    case WM_CONTEXTMENU:                                              /* right-click or the menu key on a file */
+        if (g_list && (HWND)wp == g_list) {
+            POINT pt = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
+            int i = -1;
+            if (lp == -1) {                                           /* from the keyboard: the selected file */
+                RECT r;
+                i = ListView_GetNextItem(g_list, -1, LVNI_SELECTED);
+                if (i >= 0 && ListView_GetItemRect(g_list, i, &r, LVIR_LABEL)) {
+                    pt.x = r.left; pt.y = r.bottom;
+                    ClientToScreen(g_list, &pt);
+                }
+            } else {
+                LVHITTESTINFO hit = { 0 };
+                hit.pt = pt;
+                ScreenToClient(g_list, &hit.pt);
+                i = ListView_HitTest(g_list, &hit);
+            }
+            if (i >= 0) item_menu(w, i, pt);
+            return 0;
+        }
+        break;
+    case WM_INITMENUPOPUP: case WM_DRAWITEM: case WM_MEASUREITEM: case WM_MENUCHAR:
+        /* Explorer's menu draws some of its own items (Open with, Send to, icons) */
+        if (g_cm3) {
+            LRESULT r = 0;
+            if (SUCCEEDED(IContextMenu3_HandleMenuMsg2(g_cm3, msg, wp, lp, &r))) return r;
+        } else if (g_cm2 && msg != WM_MENUCHAR) {
+            if (SUCCEEDED(IContextMenu2_HandleMenuMsg(g_cm2, msg, wp, lp))) return msg == WM_INITMENUPOPUP ? 0 : TRUE;
+        }
+        break;
     case WM_KEYDOWN:
         if (wp == VK_ESCAPE) { panel_dismiss(); return 0; }
         break;

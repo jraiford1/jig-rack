@@ -94,7 +94,8 @@ Downloads icon unless you pick another, with no label, so it takes about as much
 
 - **Click it** and a panel pops up above it with the newest items in the folder, each with its icon, size and how
   long ago it arrived ("5 min ago", "Yesterday", "Nov 3"). Click one to open it, drag it out to copy or move it
-  anywhere (Explorer, the desktop, an email), or right-click it for **Show in folder**. Click the button again,
+  anywhere (Explorer, the desktop, an email), or right-click it for Explorer's full menu (Open with, Send to, Copy,
+  Delete, Properties and the rest; Shift for the extra items) with **Show in folder** on top. Click the button again,
   press Esc or click anywhere else to close it.
 - **Right-click it** for the stack's menu: **Sort by** Name, Kind, Date Added or Date Modified (the current one is
   ticked), **Open Downloads** and **Downloads settings…**, above Windows' own "Close window".
