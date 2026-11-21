@@ -312,6 +312,7 @@ static void panel_open(HWND w)
                                  0, titleH, width, listH, w, (HMENU)(INT_PTR)ID_LIST, g_inst, NULL);
         SetWindowTheme(g_list, L"Explorer", NULL);
         ListView_SetExtendedListViewStyle(g_list, LVS_EX_DOUBLEBUFFER | LVS_EX_ONECLICKACTIVATE | LVS_EX_TRACKSELECT);
+        ListView_SetHoverTime(g_list, 1);                             /* select as the mouse moves, not after 400 ms */
         SendMessageW(g_list, WM_SETFONT, (WPARAM)g_font, FALSE);
         fill_list(dpi, width);
         /* Fit the list to its rows (the tile height depends on the fonts and icons), up to 3/4 of the screen. */
