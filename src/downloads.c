@@ -467,6 +467,14 @@ static void item_menu(HWND w, int i, POINT pt)
     else if (cmd || GetForegroundWindow() != w) panel_close();
 }
 
+static void button_clicked(HWND w, const char *how)
+{
+    BOOL justClosed = g_closedBy == w && GetTickCount64() - g_closedAt < 500;
+    trace("downloads: button %s (list %s%s)", how, g_open == w ? "open" : "closed", justClosed ? ", just closed" : "");
+    if (g_open == w) panel_close();
+    else if (!justClosed && from_taskbar(w)) panel_open(w);
+}
+
 static LRESULT CALLBACK button_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp)
 {
     switch (msg) {
@@ -486,8 +494,23 @@ static LRESULT CALLBACK button_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp)
         }
         return 0;
     case WM_SYSCOMMAND:
-        if ((wp & 0xFFF0) == SC_MINIMIZE) { panel_close(); return 0; }   /* the taskbar's "click again to hide" */
+        /* A click on the button while this window has the focus comes as "minimize": with the list open that's
+           "close it"; with it closed (the focus stays here after a file is opened or a command is used) it's
+           "open it". Unless the click itself just closed it (focus to the taskbar first, then this). */
+        if ((wp & 0xFFF0) == SC_MINIMIZE) {
+            button_clicked(w, "minimize");
+            return 0;
+        }
         if ((wp & 0xFFF0) == SC_RESTORE) { if (!g_open) panel_open(w); return 0; }
+        break;
+    case WM_SIZE:
+        if (wp == SIZE_MINIMIZED) {                                   /* minimized some other way: undo it, same idea */
+            ShowWindow(w, SW_SHOWNOACTIVATE);
+            Button *b = button_of(w);
+            if (b && g_open != w) collapse_place(w, b->mon);
+            button_clicked(w, "minimized");
+            return 0;
+        }
         break;
     case WM_COMMAND:
         if (LOWORD(wp) == IDCANCEL) { panel_dismiss(); return 0; }
