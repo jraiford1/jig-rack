@@ -1,14 +1,17 @@
 /* Jig Rack -- the Settings window: one tab per jig. Every change is saved and takes effect at once.
  * Copyright (C) 2026 Jon Raiford. GPL-3.0-or-later; see LICENSE. */
+#define COBJMACROS
 #include "jigrack.h"
 #include "resource.h"
 #include "gdip.h"
 #include <uxtheme.h>
 #include <stdlib.h>
+#include <shlobj.h>
+#include <shobjidl.h>
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "uxtheme.lib")
 
-enum { PAGE_MOUSE, PAGE_CORNERS, PAGES };
+enum { PAGE_MOUSE, PAGE_CORNERS, PAGE_DOWNLOADS, PAGES };
 
 static HINSTANCE g_inst;
 static HWND g_dlg, g_tab, g_pages[PAGES];
@@ -21,12 +24,13 @@ static BOOL g_filling;                      /* filling controls: ignore their ch
 
 HWND settings_window(void) { return g_dlg; }
 
-enum { APPLY_MOUSE = 1, APPLY_CORNERS = 2 };
+enum { APPLY_MOUSE = 1, APPLY_CORNERS = 2, APPLY_DOWNLOADS = 4 };
 static void save_and_apply(int what)
 {
     settings_save(&g_set);
     if (what & APPLY_MOUSE) mouse_apply();
     if (what & APPLY_CORNERS) hotcorner_apply();
+    if (what & APPLY_DOWNLOADS) downloads_apply();
     tray_refresh();
 }
 
@@ -396,6 +400,157 @@ static INT_PTR CALLBACK corners_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     return FALSE;
 }
 
+/* ---------------------------------------------------------------- Downloads tab ------------------------------- */
+
+static const int SORT_ORDER[DL_SORTS] = { DL_SORT_NAME, DL_SORT_KIND, DL_SORT_ADDED, DL_SORT_MODIFIED };  /* as on a Mac */
+
+static void dl_fill(HWND pg)
+{
+    g_filling = TRUE;
+    CheckDlgButton(pg, IDC_DL_BUTTON, g_set.dlButton ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(pg, IDC_DL_ALLMON, g_set.dlAllMonitors ? BST_CHECKED : BST_UNCHECKED);
+    wchar_t folder[MAX_PATH];
+    downloads_folder(folder, MAX_PATH);
+    SetDlgItemTextW(pg, IDC_DL_FOLDER, folder);
+    SetDlgItemInt(pg, IDC_DL_COUNT, g_set.dlCount, FALSE);
+    for (int k = 0; k < DL_SORTS; k++)
+        if (SORT_ORDER[k] == g_set.dlSort) SendDlgItemMessageW(pg, IDC_DL_SORT, CB_SETCURSEL, k, 0);
+    HICON old = (HICON)SendDlgItemMessageW(pg, IDC_DL_ICON, STM_SETICON,
+                                           (WPARAM)downloads_load_icon(GetSystemMetricsForDpi(SM_CXICON, GetDpiForWindow(pg))), 0);
+    if (old) DestroyIcon(old);
+    static const int deps[] = { IDC_DL_ALLMON, IDC_DL_ICONLABEL, IDC_DL_ICON, IDC_DL_CHANGEICON, IDC_DL_DEFICON,
+                                IDC_DL_FOLDERLABEL, IDC_DL_FOLDER, IDC_DL_BROWSE, IDC_DL_DEFFOLDER, IDC_DL_COUNTLABEL,
+                                IDC_DL_COUNT, IDC_DL_COUNTNOTE, IDC_DL_SORT };
+    for (int k = 0; k < (int)ARRAYSIZE(deps); k++) EnableWindow(GetDlgItem(pg, deps[k]), g_set.dlButton);
+    EnableWindow(GetDlgItem(pg, IDC_DL_DEFICON), g_set.dlButton && g_set.dlIcon[0]);
+    EnableWindow(GetDlgItem(pg, IDC_DL_DEFFOLDER), g_set.dlButton && g_set.dlFolder[0]);
+    g_filling = FALSE;
+}
+
+static void dl_pick_icon(HWND pg)
+{
+    wchar_t path[MAX_PATH];
+    int index;
+    downloads_icon_location(path, MAX_PATH, &index);
+    if (index < 0) index = 0;                          /* PickIconDlg counts icons; a resource ID won't do */
+    if (!PickIconDlg(pg, path, MAX_PATH, &index)) return;
+    wchar_t full[MAX_PATH];
+    ExpandEnvironmentStringsW(path, full, MAX_PATH);
+    swprintf_s(g_set.dlIcon, ARRAYSIZE(g_set.dlIcon), L"%s,%d", full, index);
+    save_and_apply(APPLY_DOWNLOADS);
+    dl_fill(pg);
+}
+
+static void dl_pick_folder(HWND pg)
+{
+    IFileOpenDialog *d = NULL;
+    if (FAILED(CoCreateInstance(&CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, &IID_IFileOpenDialog, (void **)&d))) return;
+    DWORD opts = 0;
+    IFileOpenDialog_GetOptions(d, &opts);
+    IFileOpenDialog_SetOptions(d, opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+    IFileOpenDialog_SetTitle(d, L"Folder for the Downloads button");
+    wchar_t now[MAX_PATH];
+    downloads_folder(now, MAX_PATH);
+    IShellItem *start = NULL;
+    if (SUCCEEDED(SHCreateItemFromParsingName(now, NULL, &IID_IShellItem, (void **)&start))) {
+        IFileOpenDialog_SetFolder(d, start);
+        IShellItem_Release(start);
+    }
+    IShellItem *it = NULL;
+    if (SUCCEEDED(IFileOpenDialog_Show(d, pg)) && SUCCEEDED(IFileOpenDialog_GetResult(d, &it))) {
+        PWSTR p = NULL;
+        if (SUCCEEDED(IShellItem_GetDisplayName(it, SIGDN_FILESYSPATH, &p))) {
+            PWSTR dl = NULL;
+            BOOL isDefault = SUCCEEDED(SHGetKnownFolderPath(&FOLDERID_Downloads, 0, NULL, &dl)) && !_wcsicmp(dl, p);
+            CoTaskMemFree(dl);
+            wcscpy_s(g_set.dlFolder, MAX_PATH, isDefault ? L"" : p);
+            CoTaskMemFree(p);
+            save_and_apply(APPLY_DOWNLOADS);          /* the jump list names the folder */
+            dl_fill(pg);
+        }
+        IShellItem_Release(it);
+    }
+    IFileOpenDialog_Release(d);
+}
+
+static INT_PTR CALLBACK downloads_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
+{
+    (void)lp;
+    switch (msg) {
+    case WM_INITDIALOG:
+        for (int k = 0; k < DL_SORTS; k++)
+            SendDlgItemMessageW(h, IDC_DL_SORT, CB_ADDSTRING, 0, (LPARAM)DL_SORT_LABELS[SORT_ORDER[k]]);
+        SendDlgItemMessageW(h, IDC_DL_COUNT, EM_LIMITTEXT, 3, 0);
+        g_pages[PAGE_DOWNLOADS] = h;
+        dl_fill(h);
+        return TRUE;
+    case WM_COMMAND:
+        if (g_filling) break;
+        switch (LOWORD(wp)) {
+        case IDC_DL_BUTTON:
+            g_set.dlButton = IsDlgButtonChecked(h, IDC_DL_BUTTON) == BST_CHECKED;
+            save_and_apply(APPLY_DOWNLOADS);
+            dl_fill(h);
+            return TRUE;
+        case IDC_DL_ALLMON:
+            g_set.dlAllMonitors = IsDlgButtonChecked(h, IDC_DL_ALLMON) == BST_CHECKED;
+            save_and_apply(APPLY_DOWNLOADS);
+            return TRUE;
+        case IDC_DL_CHANGEICON:
+            dl_pick_icon(h);
+            return TRUE;
+        case IDC_DL_DEFICON:
+            g_set.dlIcon[0] = 0;
+            save_and_apply(APPLY_DOWNLOADS);
+            dl_fill(h);
+            return TRUE;
+        case IDC_DL_BROWSE:
+            dl_pick_folder(h);
+            return TRUE;
+        case IDC_DL_DEFFOLDER:
+            g_set.dlFolder[0] = 0;
+            save_and_apply(APPLY_DOWNLOADS);
+            dl_fill(h);
+            return TRUE;
+        case IDC_DL_SORT:
+            if (HIWORD(wp) == CBN_SELCHANGE) {
+                int k = (int)SendDlgItemMessageW(h, IDC_DL_SORT, CB_GETCURSEL, 0, 0);
+                if (k >= 0 && k < DL_SORTS) {
+                    g_set.dlSort = SORT_ORDER[k];
+                    save_and_apply(0);
+                    downloads_jumplist();                  /* the tick moves */
+                }
+            }
+            return TRUE;
+        case IDC_DL_COUNT: {                               /* 1-100; anything else shows the number in use again */
+            BOOL ok;
+            UINT v = GetDlgItemInt(h, IDC_DL_COUNT, &ok, FALSE);
+            if (HIWORD(wp) == EN_CHANGE && ok && v >= 1 && v <= 100 && (int)v != g_set.dlCount) {
+                g_set.dlCount = (int)v;
+                save_and_apply(0);
+            } else if (HIWORD(wp) == EN_KILLFOCUS && (!ok || v < 1 || v > 100)) {
+                g_filling = TRUE;
+                SetDlgItemInt(h, IDC_DL_COUNT, g_set.dlCount, FALSE);
+                g_filling = FALSE;
+            }
+            return TRUE;
+        }
+        }
+        break;
+    case WM_DESTROY: {
+        HICON old = (HICON)SendDlgItemMessageW(h, IDC_DL_ICON, STM_SETICON, 0, 0);
+        if (old) DestroyIcon(old);
+        break;
+    }
+    }
+    return FALSE;
+}
+
+void settings_window_refresh(void)
+{
+    if (g_pages[PAGE_DOWNLOADS]) dl_fill(g_pages[PAGE_DOWNLOADS]);
+}
+
 /* ---------------------------------------------------------------- the window ---------------------------------- */
 
 static void show_page(int i)
@@ -423,9 +578,9 @@ static INT_PTR CALLBACK main_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         SendMessageW(h, WM_SETICON, ICON_SMALL, (LPARAM)LoadImageW(g_inst, MAKEINTRESOURCEW(IDI_APP), IMAGE_ICON,
                      GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), 0));
         g_tab = GetDlgItem(h, IDC_TABS);
-        static const wchar_t *names[PAGES] = { L"Mouse", L"Hot Corners" };
-        static const int ids[PAGES] = { IDD_PAGE_MOUSE, IDD_PAGE_CORNERS };
-        static const DLGPROC procs[PAGES] = { mouse_proc, corners_proc };
+        static const wchar_t *names[PAGES] = { L"Mouse", L"Hot Corners", L"Downloads" };
+        static const int ids[PAGES] = { IDD_PAGE_MOUSE, IDD_PAGE_CORNERS, IDD_PAGE_DOWNLOADS };
+        static const DLGPROC procs[PAGES] = { mouse_proc, corners_proc, downloads_proc };
         for (int k = 0; k < PAGES; k++) {
             TCITEMW ti = {0};
             ti.mask = TCIF_TEXT;
@@ -495,6 +650,14 @@ void settings_window_open(HINSTANCE inst)
     SetForegroundWindow(h);
 }
 
+void settings_window_open_page(HINSTANCE inst, int page)
+{
+    settings_window_open(inst);
+    if (!g_tab || page < 0 || page >= PAGES) return;
+    TabCtrl_SetCurSel(g_tab, page);
+    show_page(page);
+}
+
 /* --snap-settings <folder>: open the window off-screen, wait for the mouse search, and save each tab as a PNG. */
 static void pump(DWORD ms)
 {
@@ -519,7 +682,7 @@ int settings_window_snapshots(HINSTANCE inst, const wchar_t *dir)
     ShowWindow(h, SW_SHOWNOACTIVATE);
     for (int i = 0; i < 300 && g_searching; i++) pump(100);   /* up to 30 s for the mouse search */
     pump(300);
-    static const wchar_t *names[PAGES] = { L"settings-mouse", L"settings-hot-corners" };
+    static const wchar_t *names[PAGES] = { L"settings-mouse", L"settings-hot-corners", L"settings-downloads" };
     for (int k = 0; k < PAGES; k++) {
         TabCtrl_SetCurSel(g_tab, k);
         show_page(k);

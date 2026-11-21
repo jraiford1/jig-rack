@@ -3,6 +3,7 @@
  *   - Mouse battery jig (mouse.c): battery level and charging state of a Logitech wireless mouse, without G HUB.
  *   - Hot corner jig (hotcorner.c): rest the cursor in a screen corner to lock the PC, sleep, show the desktop...
  *   - Eject media jig (media.c): safely remove a USB drive or memory card from the tray menu.
+ *   - Downloads jig (downloads.c): a Downloads button on each monitor's taskbar with the newest downloads.
  * Right-click the tray icon for Settings (settingswnd.c), saved in %APPDATA%\Jig Rack\settings.ini (settings.c).
  *
  * Copyright (C) 2026 Jon Raiford
@@ -138,13 +139,19 @@ static void tray_menu(HWND hwnd)
 
 static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
-    if (msg == g_taskbarCreated && g_taskbarCreated) { add_tray(hwnd); return 0; }  /* Explorer restarted */
+    if (msg == g_taskbarCreated && g_taskbarCreated) {      /* Explorer restarted */
+        add_tray(hwnd);
+        downloads_apply();
+        return 0;
+    }
     switch (msg) {
     case WM_CREATE:
         add_tray(hwnd);
         hotcorner_init(g_inst, hwnd);
         hotcorner_apply();
         mouse_start(hwnd);
+        downloads_init(g_inst);
+        downloads_apply();
         return 0;
     case WM_RESULT: {
         Battery *b = (Battery *)lp;
@@ -153,6 +160,9 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         tray_refresh();
         return 0;
     }
+    case WM_DL_COMMAND:                                     /* from a jump list entry, via a second copy */
+        downloads_command((int)wp);
+        return 0;
     case WM_EJECTED: {
         EjectResult *r = (EjectResult *)lp;
         trace("eject: %ls - %ls", r->title, r->text);
@@ -171,6 +181,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_DISPLAYCHANGE:                                  /* monitor added, removed or rearranged */
         hotcorner_layout_changed();
+        downloads_apply();
         if (settings_window()) PostMessageW(settings_window(), WM_DISPLAYCHANGE, wp, lp);
         break;
     case WM_DESTROY:
@@ -234,6 +245,16 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show_cmd)
         CloseHandle(g_log);
         return 0;
     }
+    if (argv && (v = arg_after(argc, argv, L"--downloads")) != NULL) {   /* a Downloads jump list entry */
+        int c = downloads_command_id(v);
+        HWND w = FindWindowW(L"JigRackTrayWindow", NULL);
+        if (c < 0 || !w) return 1;
+        DWORD pid = 0;
+        GetWindowThreadProcessId(w, &pid);
+        AllowSetForegroundWindow(pid);                      /* so it can bring up Explorer or Settings */
+        PostMessageW(w, WM_DL_COMMAND, (WPARAM)c, 0);
+        return 0;
+    }
     if (argv && has_arg(argc, argv, L"--exit")) {          /* close the running copy cleanly (for upgrades) */
         HWND w = FindWindowW(L"JigRackTrayWindow", NULL);
         if (!w) return 0;
@@ -277,6 +298,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show_cmd)
     wcscat_s(logpath, MAX_PATH, L"jigrack.log");
     open_log(logpath);
     trace("Jig Rack started");
+    OleInitialize(NULL);                                    /* the Downloads panel: drag and drop, shell items */
     settings_load(&g_set);
     g_taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
     WNDCLASSW wc = {0};
@@ -293,6 +315,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show_cmd)
     while (GetMessageW(&m, NULL, 0, 0) > 0) {
         HWND dlg = settings_window();
         if (dlg && IsDialogMessageW(dlg, &m)) continue;
+        if (downloads_is_message(&m)) continue;
         TranslateMessage(&m);
         DispatchMessageW(&m);
     }

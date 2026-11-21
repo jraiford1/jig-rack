@@ -48,7 +48,16 @@ typedef struct {
     int lowPercent;             /* "low battery": at or below this the meter is red and hot corners can warn */
     int ruleCount;
     Rule rules[MAX_RULES];
+    int dlButton;               /* Downloads: a button on the taskbar */
+    int dlAllMonitors;          /* on every monitor's taskbar, not just the main one */
+    wchar_t dlIcon[MAX_PATH + 16];  /* "path,index" (a negative index is a resource ID); "" = Windows' Downloads icon */
+    wchar_t dlFolder[MAX_PATH]; /* "" = the Downloads folder */
+    int dlCount;                /* how many of the newest items the panel shows */
+    int dlSort;                 /* DL_SORT_* */
 } Settings;
+enum { DL_SORT_ADDED, DL_SORT_MODIFIED, DL_SORT_NAME, DL_SORT_KIND, DL_SORTS };
+#define WM_DL_COMMAND (WM_APP + 5)       /* "--downloads <command>" (from the jump list) -> running copy: wp = DL_CMD_* */
+enum { DL_CMD_SORT_ADDED, DL_CMD_SORT_MODIFIED, DL_CMD_SORT_NAME, DL_CMD_SORT_KIND, DL_CMD_OPEN, DL_CMD_SETTINGS, DL_CMDS };
 
 extern Settings g_set;
 BOOL mouse_chosen(const Settings *s);           /* a mouse is picked */
@@ -120,6 +129,8 @@ void hotcorner_write_previews(const wchar_t *dir);   /* --preview: the countdown
 /* ---------------------------------------------------------------- tray + settings window -------------------- */
 void tray_refresh(void);                        /* main.c: redraw the tray icon from g_set and the last reading */
 void settings_window_open(HINSTANCE inst);      /* settingswnd.c */
+void settings_window_open_page(HINSTANCE inst, int page);   /* 0 Mouse, 1 Hot Corners, 2 Downloads */
+void settings_window_refresh(void);             /* settings changed elsewhere (the jump list): show them */
 HWND settings_window(void);
 int  settings_window_snapshots(HINSTANCE inst, const wchar_t *dir);   /* --snap-settings: PNG of each tab */
 
@@ -140,3 +151,23 @@ int media_list(Drive *out, int max);                 /* the drives that can be s
 void media_label(Drive *d);                          /* fills d->label from the rest */
 BOOL media_eject(const Drive *d, wchar_t *why, int cch);
 BOOL media_eject_async(HWND notify, const Drive *list, int n);  /* FALSE if one is already running */
+
+/* ---------------------------------------------------------------- Downloads (downloads.c) --------------------- */
+typedef struct {
+    wchar_t name[MAX_PATH];
+    FILETIME added, modified;   /* created in the folder; last written */
+    ULONGLONG size;
+    BOOL dir;
+} DlItem;
+void downloads_init(HINSTANCE inst);
+void downloads_apply(void);                          /* (re)make the taskbar buttons */
+BOOL downloads_is_message(MSG *m);                   /* keyboard for the open panel */
+void downloads_folder(wchar_t *out, int cch);        /* the folder in use */
+void downloads_icon_location(wchar_t *path, int cch, int *index);
+HICON downloads_load_icon(int size);
+int downloads_collect(const wchar_t *folder, int sort, DlItem *out, int max);
+void downloads_when(FILETIME ft, FILETIME now, wchar_t *out, int cch);
+void downloads_jumplist(void);                       /* the button's right-click menu */
+void downloads_command(int cmd);                     /* DL_CMD_*, in the running copy */
+int downloads_command_id(const wchar_t *name);       /* "sort-name" -> DL_CMD_SORT_NAME; -1 if unknown */
+extern const wchar_t *DL_SORT_LABELS[DL_SORTS];

@@ -87,3 +87,25 @@ BEGIN
     AUTOCHECKBOX    "Show the c&ountdown", IDC_RULE_COUNTDOWN, 122, 171, 120, 10
     AUTOCHECKBOX    "Warn if mouse &battery is low", IDC_RULE_WARN, 132, 185, 140, 10
 END
+
+IDD_PAGE_DOWNLOADS DIALOGEX 0, 0, 296, 208
+STYLE DS_SETFONT | DS_CONTROL | WS_CHILD
+EXSTYLE WS_EX_CONTROLPARENT
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    AUTOCHECKBOX    "Show a &Downloads button on the taskbar", IDC_DL_BUTTON, 7, 8, 282, 10
+    AUTOCHECKBOX    "On all &monitors (otherwise only the main one)", IDC_DL_ALLMON, 19, 22, 270, 10
+    LTEXT           "Icon:", IDC_DL_ICONLABEL, 7, 46, 40, 8
+    CONTROL         "", IDC_DL_ICON, "Static", SS_ICON | SS_CENTERIMAGE, 52, 39, 20, 20
+    PUSHBUTTON      "C&hange icon...", IDC_DL_CHANGEICON, 80, 43, 64, 14
+    PUSHBUTTON      "D&efault", IDC_DL_DEFICON, 148, 43, 46, 14
+    LTEXT           "&Folder:", IDC_DL_FOLDERLABEL, 7, 70, 40, 8
+    EDITTEXT        IDC_DL_FOLDER, 52, 68, 237, 12, ES_AUTOHSCROLL | ES_READONLY
+    PUSHBUTTON      "&Browse...", IDC_DL_BROWSE, 52, 84, 50, 14
+    PUSHBUTTON      "Downloads &folder", IDC_DL_DEFFOLDER, 106, 84, 70, 14
+    LTEXT           "&Show the", IDC_DL_COUNTLABEL, 7, 110, 40, 8
+    EDITTEXT        IDC_DL_COUNT, 52, 108, 24, 12, ES_NUMBER
+    LTEXT           "newest items, sorted by", IDC_DL_COUNTNOTE, 80, 110, 80, 8
+    COMBOBOX        IDC_DL_SORT, 162, 108, 90, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Click the button for the newest items: click one to open it, or drag it out. Right-click the button to change the sort order or open the folder.", IDC_DL_NOTE, 7, 132, 282, 26
+END

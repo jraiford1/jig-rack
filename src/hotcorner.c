@@ -706,6 +706,12 @@ static void test_settings_file(void)
     wcscpy_s(a.deviceName, 64, L"G502 X LIGHTSPEED \x2014 \x00e9\x00e8");
     a.showMeter = 0;
     a.lowPercent = 35;
+    a.dlButton = 1;
+    a.dlAllMonitors = 0;
+    wcscpy_s(a.dlIcon, ARRAYSIZE(a.dlIcon), L"C:\\Windows\\System32\\shell32.dll,45");
+    wcscpy_s(a.dlFolder, MAX_PATH, L"D:\\T\x00e9l\x00e9chargements");
+    a.dlCount = 35;
+    a.dlSort = DL_SORT_KIND;
     a.ruleCount = 3;
     rule_defaults(&a.rules[1]);
     rule_defaults(&a.rules[2]);
@@ -720,7 +726,9 @@ static void test_settings_file(void)
     settings_load(&b);
     BOOL same = saved && a.mouseType == b.mouseType && a.productId == b.productId && a.deviceIndex == b.deviceIndex &&
                 wcscmp(a.deviceName, b.deviceName) == 0 && a.showMeter == b.showMeter && a.ruleCount == b.ruleCount &&
-                a.lowPercent == b.lowPercent &&
+                a.lowPercent == b.lowPercent && a.dlButton == b.dlButton && a.dlAllMonitors == b.dlAllMonitors &&
+                !wcscmp(a.dlIcon, b.dlIcon) && !wcscmp(a.dlFolder, b.dlFolder) && a.dlCount == b.dlCount &&
+                a.dlSort == b.dlSort &&
                 memcmp(a.rules, b.rules, sizeof a.rules) == 0;
     EXPECT(same, "settings file: saved and read back the same (3 rules, non-ASCII names)");
     a.ruleCount = 1;
@@ -730,7 +738,8 @@ static void test_settings_file(void)
     DeleteFileW(tmp);
     settings_load(&b);
     EXPECT(b.mouseType == MOUSE_NONE && b.ruleCount == 1 && b.rules[0].corner == CORNER_TR &&
-           b.rules[0].action == ACT_LOCK && b.rules[0].delayMs == 5000 && !b.rules[0].warnLow && b.lowPercent == 20,
+           b.rules[0].action == ACT_LOCK && b.rules[0].delayMs == 5000 && !b.rules[0].warnLow && b.lowPercent == 20 &&
+           !b.dlButton && b.dlAllMonitors && b.dlCount == 20 && b.dlSort == DL_SORT_ADDED && !b.dlIcon[0] && !b.dlFolder[0],
            "no settings file: the defaults");
     settings_use_file(old);
 }
@@ -763,6 +772,99 @@ static void test_media(void)
     EXPECT(n >= 0 && !sys, what);
 }
 
+/* A local time as a FILETIME (UTC), for the Downloads tests. */
+static FILETIME local_ft(WORD y, WORD mo, WORD d, WORD h, WORD mi, WORD sec)
+{
+    SYSTEMTIME st = { y, mo, 0, d, h, mi, sec, 0 };
+    FILETIME lf, ft;
+    SystemTimeToFileTime(&st, &lf);
+    LocalFileTimeToFileTime(&lf, &ft);
+    return ft;
+}
+
+static FILETIME ft_ago(FILETIME now, ULONGLONG secs)
+{
+    ULARGE_INTEGER u = { now.dwLowDateTime, now.dwHighDateTime };
+    u.QuadPart -= secs * 10000000ULL;
+    FILETIME f = { u.LowPart, u.HighPart };
+    return f;
+}
+
+static void make_item(const wchar_t *dir, const wchar_t *name, BOOL folder, FILETIME created, FILETIME written, DWORD attrs)
+{
+    wchar_t path[MAX_PATH];
+    swprintf_s(path, MAX_PATH, L"%s\\%s", dir, name);
+    if (folder) CreateDirectoryW(path, NULL);
+    HANDLE h = CreateFileW(path, GENERIC_WRITE, 0, NULL, folder ? OPEN_EXISTING : CREATE_ALWAYS,
+                           folder ? FILE_FLAG_BACKUP_SEMANTICS : FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) return;
+    DWORD w;
+    if (!folder) WriteFile(h, "jig", 3, &w, NULL);
+    SetFileTime(h, &created, NULL, &written);
+    CloseHandle(h);
+    if (attrs) SetFileAttributesW(path, attrs);
+}
+
+/* Downloads: which items the panel shows, in each order, and how it says when. Uses a scratch folder. */
+static void test_downloads(void)
+{
+    wchar_t dir[MAX_PATH];
+    GetTempPathW(MAX_PATH, dir);
+    wcscat_s(dir, MAX_PATH, L"jigrack-selftest-downloads");
+    SHFILEOPSTRUCTW del = { NULL, FO_DELETE, NULL, NULL, FOF_NO_UI };
+    wchar_t dz[MAX_PATH + 2] = {0};
+    wcscpy_s(dz, MAX_PATH, dir);
+    del.pFrom = dz;
+    SHFileOperationW(&del);
+    CreateDirectoryW(dir, NULL);
+    FILETIME now;
+    GetSystemTimeAsFileTime(&now);
+    make_item(dir, L"a.txt", FALSE, ft_ago(now, 3 * 86400), ft_ago(now, 60), 0);
+    make_item(dir, L"b.zip", FALSE, ft_ago(now, 3600), ft_ago(now, 7200), 0);
+    make_item(dir, L"c", TRUE, ft_ago(now, 2 * 86400), ft_ago(now, 2 * 86400), 0);
+    make_item(dir, L"z.zip.crdownload", FALSE, now, now, 0);           /* still downloading */
+    make_item(dir, L"hidden.txt", FALSE, now, now, FILE_ATTRIBUTE_HIDDEN);
+    make_item(dir, L"desktop.ini", FALSE, now, now, 0);
+    DlItem it[8];
+    struct { int sort; const wchar_t *want; const char *what; } c[] = {
+        { DL_SORT_ADDED, L"b.zip c a.txt", "downloads: date added, newest first; partial, hidden and desktop.ini left out" },
+        { DL_SORT_MODIFIED, L"a.txt b.zip c", "downloads: date modified, newest first" },
+        { DL_SORT_NAME, L"a.txt b.zip c", "downloads: name" },
+        { DL_SORT_KIND, L"c a.txt b.zip", "downloads: kind (folders, then by type)" },
+    };
+    for (int k = 0; k < (int)ARRAYSIZE(c); k++) {
+        int n = downloads_collect(dir, c[k].sort, it, 8);
+        wchar_t got[200] = L"";
+        for (int i = 0; i < n; i++) { if (i) wcscat_s(got, 200, L" "); wcscat_s(got, 200, it[i].name); }
+        EXPECT(wcscmp(got, c[k].want) == 0, c[k].what);
+        if (wcscmp(got, c[k].want)) trace("  got: %ls", got);
+    }
+    int n = downloads_collect(dir, DL_SORT_ADDED, it, 2);
+    EXPECT(n == 2 && !wcscmp(it[0].name, L"b.zip") && !wcscmp(it[1].name, L"c") && it[1].dir,
+           "downloads: only the newest 2 when it shows 2");
+    SHFileOperationW(&del);
+
+    FILETIME t = local_ft(2026, 11, 21, 15, 0, 0);
+    struct { FILETIME when; const wchar_t *want; } w[] = {
+        { ft_ago(t, 30), L"Just now" },
+        { ft_ago(t, 5 * 60), L"5 min ago" },
+        { ft_ago(t, 2 * 3600 + 59), L"2 hr ago" },
+        { local_ft(2026, 11, 20, 23, 30, 0), L"Yesterday" },
+        { local_ft(2026, 11, 17, 9, 0, 0), L"4 days ago" },
+        { local_ft(2026, 11, 3, 9, 0, 0), L"Nov 3" },
+        { local_ft(2025, 3, 2, 9, 0, 0), L"Mar 2, 2025" },
+    };
+    BOOL ok = TRUE;
+    for (int k = 0; k < (int)ARRAYSIZE(w); k++) {
+        wchar_t got[48];
+        downloads_when(w[k].when, t, got, 48);
+        if (wcscmp(got, w[k].want)) { ok = FALSE; trace("  when: got \"%ls\", want \"%ls\"", got, w[k].want); }
+    }
+    EXPECT(ok, "downloads: when (just now, minutes, hours, yesterday, days, a date, another year)");
+    EXPECT(downloads_command_id(L"sort-kind") == DL_CMD_SORT_KIND && downloads_command_id(L"open") == DL_CMD_OPEN &&
+           downloads_command_id(L"rm -rf") == -1, "downloads: jump list commands");
+}
+
 int hotcorner_selftest(void)
 {
     Settings saved = g_set;
@@ -775,6 +877,7 @@ int hotcorner_selftest(void)
     test_low_battery();
     test_settings_file();
     test_media();
+    test_downloads();
     trace("selftest done: %d failure(s)", g_fails);
     g_set = saved;
     return g_fails;

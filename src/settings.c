@@ -21,6 +21,7 @@ static const wchar_t *ACTION_KEYS[ACTIONS] = { L"lock", L"sleep", L"screens-off"
 static const wchar_t *ACTION_NAMES[ACTIONS] = { L"Lock the PC", L"Sleep", L"Turn off the screens", L"Show the desktop",
                                                  L"Task View", L"Run a command" };
 static const wchar_t *MOUSE_KEYS[MOUSE_TYPES] = { L"none", L"logitech" };
+static const wchar_t *SORT_KEYS[DL_SORTS] = { L"added", L"modified", L"name", L"kind" };
 
 BOOL mouse_chosen(const Settings *s)
 {
@@ -67,6 +68,8 @@ void settings_defaults(Settings *s)
     s->mouseType = MOUSE_NONE;
     s->showMeter = 1;
     s->lowPercent = 20;
+    s->dlAllMonitors = 1;
+    s->dlCount = 20;
     s->ruleCount = 1;
     rule_defaults(&s->rules[0]);
 }
@@ -110,6 +113,16 @@ void settings_load(Settings *s)
     s->lowPercent = get_int(L"Mouse", L"Low", 20);
     if (s->lowPercent < 1) s->lowPercent = 1;
     if (s->lowPercent > 99) s->lowPercent = 99;
+
+    s->dlButton = get_int(L"Downloads", L"Button", 0) != 0;
+    s->dlAllMonitors = get_int(L"Downloads", L"AllMonitors", 1) != 0;
+    get_str(L"Downloads", L"Icon", s->dlIcon, ARRAYSIZE(s->dlIcon));
+    get_str(L"Downloads", L"Folder", s->dlFolder, MAX_PATH);
+    s->dlCount = get_int(L"Downloads", L"Count", 20);
+    if (s->dlCount < 1) s->dlCount = 1;
+    if (s->dlCount > 100) s->dlCount = 100;
+    get_str(L"Downloads", L"Sort", v, 64);
+    s->dlSort = find_key(v, SORT_KEYS, DL_SORTS, DL_SORT_ADDED);
 
     int n = get_int(L"HotCorners", L"Count", 0);
     if (n < 0) n = 0;
@@ -179,6 +192,12 @@ BOOL settings_save(const Settings *s)
     ok &= put(L"Mouse", L"Name", s->deviceName);
     ok &= put_int(L"Mouse", L"ShowMeter", s->showMeter);
     ok &= put_int(L"Mouse", L"Low", s->lowPercent);
+    ok &= put_int(L"Downloads", L"Button", s->dlButton);
+    ok &= put_int(L"Downloads", L"AllMonitors", s->dlAllMonitors);
+    ok &= put(L"Downloads", L"Icon", s->dlIcon);
+    ok &= put(L"Downloads", L"Folder", s->dlFolder);
+    ok &= put_int(L"Downloads", L"Count", s->dlCount);
+    ok &= put(L"Downloads", L"Sort", SORT_KEYS[s->dlSort]);
     ok &= put_int(L"HotCorners", L"Count", s->ruleCount);
     for (int i = 0; i < MAX_RULES; i++) {
         wchar_t sec[32];

@@ -4,6 +4,7 @@
 #define IDD_SETTINGS            100
 #define IDD_PAGE_MOUSE          101
 #define IDD_PAGE_CORNERS        102
+#define IDD_PAGE_DOWNLOADS      103
 
 #define IDC_TABS                1000
 
@@ -29,3 +30,19 @@
 #define IDC_RULE_GROUP          1209
 #define IDC_RULE_CMDLABEL       1210
 #define IDC_RULE_WARN           1211
+
+#define IDC_DL_BUTTON           1300
+#define IDC_DL_ALLMON           1301
+#define IDC_DL_ICON             1302
+#define IDC_DL_CHANGEICON       1303
+#define IDC_DL_DEFICON          1304
+#define IDC_DL_FOLDER           1305
+#define IDC_DL_BROWSE           1306
+#define IDC_DL_COUNT            1307
+#define IDC_DL_SORT             1308
+#define IDC_DL_NOTE             1309
+#define IDC_DL_ICONLABEL        1310
+#define IDC_DL_FOLDERLABEL      1311
+#define IDC_DL_COUNTLABEL       1312
+#define IDC_DL_COUNTNOTE        1313
+#define IDC_DL_DEFFOLDER        1314

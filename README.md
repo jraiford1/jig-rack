@@ -87,6 +87,30 @@ With nothing to eject the menu is just Settings and Exit. A notification says wh
   leaving the reader. It runs in the background and retries for a moment if a file was only just closed.
 - The list is read each time the menu opens; there's nothing running in between.
 
+### Downloads
+
+Like the Downloads stack in a Mac's Dock: a Downloads button on the taskbar of every monitor (Windows' own
+Downloads icon unless you pick another, with no label, so it takes about as much room as a pinned icon).
+
+- **Click it** and a panel pops up above it with the newest items in the folder, each with its icon, size and how
+  long ago it arrived ("5 min ago", "Yesterday", "Nov 3"). Click one to open it, drag it out to copy or move it
+  anywhere (Explorer, the desktop, an email), or right-click it for **Show in folder**. Click the button again,
+  press Esc or click anywhere else to close it.
+- **Right-click it** for the stack's menu: **Sort by** Name, Kind, Date Added or Date Modified (the current one is
+  ticked), **Open Downloads** and **Downloads settings…**, above Windows' own "Close window".
+- Files still downloading (`.crdownload`, `.part` and the like), hidden files and `desktop.ini` are left out.
+
+Set it up in **Settings → Downloads**: turn the button on, **On all monitors** (otherwise only the main one), the
+icon (**Change icon…** picks one from any `.ico`, `.exe` or `.dll`; **Default** goes back to Windows' Downloads
+icon), the folder (any folder, not just Downloads), how many of the newest items to show (20 unless you change it)
+and the sort order.
+
+How it works: Windows puts a window's taskbar button on the taskbar of the monitor the window is on, so Jig Rack
+keeps one tiny, invisible, click-through window on each monitor, which becomes the panel when its button is
+clicked. They have their own taskbar identity (AppUserModelID), so they never group with anything else, can't be
+pinned, and have their own right-click menu (a jump list, whose entries run `JigRack.exe --downloads <command>`,
+which passes the command to the running copy). The folder is read only when the panel opens.
+
 ## Tray menu and settings
 
 The tray icon is the Jig Rack icon (a workshop pegboard with a wrench and a screwdriver), or the mouse battery
@@ -121,6 +145,7 @@ builds again.
 | `src\mouse.c` | The mouse battery jig (HID++) |
 | `src\hotcorner.c` | The hot corner jig, its countdown and its self-test |
 | `src\media.c` | The eject media jig |
+| `src\downloads.c` | The Downloads jig: the taskbar buttons, the panel and the right-click menu |
 | `src\icons.c` | The tray icons (GDI+), previews and the `.ico` |
 
 ## Install
@@ -140,12 +165,13 @@ ran) `HKCU\Software\JigRack`.
 
 | Command | What it does |
 |---|---|
-| `JigRack.exe --selftest <log file>` | Runs the hot corner rules on scripted cursor timelines against your real monitor layout, a settings-file round trip and the eject menu's text, and writes the results to the log. Never acts. Expect `0 failure(s)`. |
+| `JigRack.exe --selftest <log file>` | Runs the hot corner rules on scripted cursor timelines against your real monitor layout, a settings-file round trip, the eject menu's text and the Downloads panel's choice and order of items (in a scratch folder), and writes the results to the log. Never acts. Expect `0 failure(s)`. |
 | `JigRack.exe --preview <folder>` | Writes the tray icons and the countdown overlay (with and without the battery warning) as PNGs and exits. |
 | `JigRack.exe --demo-countdown` | Shows the countdown at the first rule's corner, without any action. |
 | `JigRack.exe --snap-settings <folder>` | Opens the Settings window off-screen and saves each tab as a PNG. |
 | `JigRack.exe --devices <log file>` | Lists the Logitech mice found (receiver, slot, name, type, battery) in the log. |
 | `JigRack.exe --media <log file>` | Lists the drives the tray menu would offer to eject, in the log. Never ejects. |
+| `JigRack.exe --downloads <command>` | What the Downloads button's right-click menu runs: `sort-name`, `sort-kind`, `sort-added`, `sort-modified`, `open` or `settings`, passed to the running copy. |
 | `JigRack.exe --exit` | Closes the running copy cleanly. |
 | `JigRack.exe --write-ico <file>` | Writes the Jig Rack icon as a multi-size `.ico`. |
 | `--settings <file>` | With any of the above (or none): use that settings file instead of the one in `%APPDATA%`. |
