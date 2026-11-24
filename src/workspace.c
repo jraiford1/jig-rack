@@ -191,6 +191,14 @@ static BOOL place(HWND w, const App *a, const RECT *work, const Place *p)
         fr = wr;                                                      /* margins are only right when restored */
     RECT n = { t.left - (fr.left - wr.left), t.top - (fr.top - wr.top),
                t.right + (wr.right - fr.right), t.bottom + (wr.bottom - fr.bottom) };
+    /* An app that isn't per-monitor DPI aware (HCL Notes) is scaled for whichever monitor Windows thinks it's on:
+       let even its invisible border reach onto the next monitor and it's sized with that monitor's scaling (1890 px
+       asked became 3188). So it stays wholly on its monitor; its edge may sit a few pixels in. */
+    if (GetAwarenessFromDpiAwarenessContext(GetWindowDpiAwarenessContext(w)) != DPI_AWARENESS_PER_MONITOR_AWARE) {
+        MONITORINFO mm = { sizeof mm };
+        GetMonitorInfoW(MonitorFromRect(&t, MONITOR_DEFAULTTONEAREST), &mm);
+        IntersectRect(&n, &n, &mm.rcMonitor);
+    }
     /* SetWindowPlacement moves a maximized or minimized window too; its coordinates are relative to the main
        monitor's work area. */
     MONITORINFO pm = { sizeof pm };
@@ -443,7 +451,7 @@ HBITMAP workspace_app_icon(const App *a, int size)
 
 /* ---------------------------------------------------------------- launching ----------------------------------- */
 
-enum { ST_IDLE, ST_WAITING, ST_SETTLING, ST_DONE, ST_FAILED, ST_UNPLACED };
+enum { ST_IDLE, ST_WAITING, ST_SETTLING, ST_CHECK, ST_DONE, ST_FAILED, ST_UNPLACED };
 static struct { int state; HWND w; ULONGLONG until, started; DWORD pid; Place place; RECT work; } g_run[MAX_APPS];
 static int g_count;
 static HWND g_owner;
@@ -452,7 +460,7 @@ static void finish_if_done(void)
 {
     int done = 0, failed = 0;
     for (int i = 0; i < g_count; i++) {
-        if (g_run[i].state == ST_WAITING || g_run[i].state == ST_SETTLING) return;
+        if (g_run[i].state == ST_WAITING || g_run[i].state == ST_SETTLING || g_run[i].state == ST_CHECK) return;
         if (g_run[i].state == ST_FAILED) failed++; else done++;
     }
     KillTimer(g_owner, TIMER_WORKSPACE);
@@ -561,6 +569,21 @@ void workspace_tick(void)
             if (w && w != g_run[i].w && IsWindow(g_run[i].w)) w = g_run[i].w;
             if (!w && IsWindow(g_run[i].w)) w = g_run[i].w;
             if (w) place(w, a, &g_run[i].work, &g_run[i].place);
+            g_run[i].w = w;
+            g_run[i].state = w ? ST_CHECK : ST_DONE;
+            g_run[i].until = now + 700;
+        } else if (g_run[i].state == ST_CHECK && now >= g_run[i].until) {
+            /* did it take? an app can refuse a size (a minimum width wider than the spot, say) */
+            RECT t, fr;
+            const Place *p = &g_run[i].place;
+            workspace_target(&g_run[i].work, p->pos, p->x, p->y, p->w, p->h, &t);
+            HWND w = g_run[i].w;
+            if (IsWindow(w) && !IsZoomed(w) && p->pos != POS_MAXIMIZED &&
+                SUCCEEDED(DwmGetWindowAttribute(w, DWMWA_EXTENDED_FRAME_BOUNDS, &fr, sizeof fr)) &&
+                (abs(fr.left - t.left) > 16 || abs(fr.top - t.top) > 16 || abs(fr.right - t.right) > 16 || abs(fr.bottom - t.bottom) > 16))
+                trace("workspace: %ls is at %ld,%ld,%ld,%ld (%ld x %ld), not %ld,%ld,%ld,%ld (%ld x %ld): it won't go there or "
+                      "that small", a->name, fr.left, fr.top, fr.right, fr.bottom, fr.right - fr.left, fr.bottom - fr.top,
+                      t.left, t.top, t.right, t.bottom, t.right - t.left, t.bottom - t.top);
             g_run[i].state = ST_DONE;
         }
     }
