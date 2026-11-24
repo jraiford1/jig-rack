@@ -37,14 +37,14 @@ BEGIN
     END
 END
 
-IDD_SETTINGS DIALOGEX 0, 0, 320, 262
+IDD_SETTINGS DIALOGEX 0, 0, 420, 316
 STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX
 EXSTYLE WS_EX_CONTROLPARENT | WS_EX_APPWINDOW
 CAPTION "Jig Rack Settings"
 FONT 9, "Segoe UI", 400, 0, 0x1
 BEGIN
-    CONTROL         "", IDC_TABS, "SysTabControl32", WS_TABSTOP, 7, 7, 306, 228
-    DEFPUSHBUTTON   "Close", IDOK, 263, 241, 50, 14
+    CONTROL         "", IDC_TABS, "SysTabControl32", WS_TABSTOP, 7, 7, 406, 282
+    DEFPUSHBUTTON   "Close", IDOK, 363, 295, 50, 14
 END
 
 IDD_PAGE_MOUSE DIALOGEX 0, 0, 296, 208
@@ -110,38 +110,30 @@ BEGIN
     LTEXT           "Click the button for the newest items: click one to open it, or drag it out. Right-click the button to change the sort order or open the folder.", IDC_DL_NOTE, 7, 132, 282, 26
 END
 
-IDD_PAGE_WORKSPACE DIALOGEX 0, 0, 296, 208
+IDD_PAGE_WORKSPACE DIALOGEX 0, 0, 400, 260
 STYLE DS_SETFONT | DS_CONTROL | WS_CHILD
 EXSTYLE WS_EX_CONTROLPARENT
 FONT 9, "Segoe UI", 400, 0, 0x1
 BEGIN
-    LTEXT           "&Apps (started in this order):", -1, 7, 7, 200, 8
-    LISTBOX         IDC_WS_APPS, 7, 18, 248, 56, LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_HSCROLL | WS_BORDER | WS_TABSTOP
-    PUSHBUTTON      "+", IDC_WS_ADD, 261, 18, 28, 13
-    PUSHBUTTON      "-", IDC_WS_DEL, 261, 33, 28, 13
-    PUSHBUTTON      "Up", IDC_WS_UP, 261, 48, 28, 13
-    PUSHBUTTON      "Down", IDC_WS_DOWN, 261, 63, 28, 13
-    GROUPBOX        "Selected app", IDC_WS_GROUP, 7, 78, 282, 126
-    LTEXT           "&Program:", IDC_WS_L1, 15, 94, 55, 8
-    EDITTEXT        IDC_WS_PROGRAM, 72, 92, 170, 12, ES_AUTOHSCROLL
-    PUSHBUTTON      "&Browse...", IDC_WS_BROWSE, 246, 91, 36, 14
-    LTEXT           "Ar&guments:", IDC_WS_L2, 15, 110, 55, 8
-    EDITTEXT        IDC_WS_ARGS, 72, 108, 210, 12, ES_AUTOHSCROLL
-    LTEXT           "&Title contains:", IDC_WS_L3, 15, 126, 55, 8
-    EDITTEXT        IDC_WS_TITLE, 72, 124, 210, 12, ES_AUTOHSCROLL
-    LTEXT           "&Monitor:", IDC_WS_L4, 15, 142, 55, 8
-    COMBOBOX        IDC_WS_MONITOR, 72, 140, 210, 100, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT           "P&osition:", IDC_WS_L5, 15, 158, 55, 8
-    COMBOBOX        IDC_WS_POS, 72, 156, 110, 140, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    PUSHBUTTON      "&Use current position", IDC_WS_CURRENT, 188, 155, 94, 14
-    LTEXT           "Custom (%):", IDC_WS_L6, 15, 176, 55, 8
-    LTEXT           "Left", IDC_WS_L7, 72, 176, 16, 8
-    EDITTEXT        IDC_WS_X, 90, 174, 22, 12, ES_NUMBER
-    LTEXT           "Top", IDC_WS_L8, 120, 176, 16, 8
-    EDITTEXT        IDC_WS_Y, 138, 174, 22, 12, ES_NUMBER
-    LTEXT           "Width", IDC_WS_L9, 168, 176, 22, 8
-    EDITTEXT        IDC_WS_W, 192, 174, 22, 12, ES_NUMBER
-    LTEXT           "Height", IDC_WS_L10, 222, 176, 24, 8
-    EDITTEXT        IDC_WS_H, 248, 174, 22, 12, ES_NUMBER
-    LTEXT           "Tray menu > Launch workspace starts these and puts them in place.", IDC_WS_NOTE, 15, 190, 268, 10
+    LTEXT           "&Apps:", -1, 7, 9, 100, 8
+    LISTBOX         IDC_WS_APPS, 7, 20, 120, 160, LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_BORDER | WS_TABSTOP
+    PUSHBUTTON      "+", IDC_WS_ADD, 7, 184, 24, 14
+    PUSHBUTTON      "-", IDC_WS_DEL, 34, 184, 24, 14
+    PUSHBUTTON      "Up", IDC_WS_UP, 61, 184, 32, 14
+    PUSHBUTTON      "Down", IDC_WS_DOWN, 96, 184, 31, 14
+    LTEXT           "Monitor &setup:", -1, 136, 9, 52, 8
+    COMBOBOX        IDC_WS_LAYOUT, 190, 7, 112, 100, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON      "Add &current", IDC_WS_ADDLAYOUT, 306, 6, 48, 14
+    PUSHBUTTON      "&Remove", IDC_WS_DELLAYOUT, 357, 6, 36, 14
+    LTEXT           "&Name:", IDC_WS_L4, 136, 25, 52, 8
+    EDITTEXT        IDC_WS_LAYOUTNAME, 190, 23, 112, 12, ES_AUTOHSCROLL
+    CONTROL         "", IDC_WS_CANVAS, "JigRackWsCanvas", WS_TABSTOP | WS_BORDER, 136, 40, 257, 140
+    LTEXT           "Drag an app from the list onto a monitor; right-click it there for more choices.", IDC_WS_NOTE, 136, 186, 257, 8
+    LTEXT           "&Program:", IDC_WS_L1, 7, 210, 50, 8
+    EDITTEXT        IDC_WS_PROGRAM, 60, 208, 290, 12, ES_AUTOHSCROLL
+    PUSHBUTTON      "&Browse...", IDC_WS_BROWSE, 354, 207, 39, 14
+    LTEXT           "Ar&guments:", IDC_WS_L2, 7, 226, 50, 8
+    EDITTEXT        IDC_WS_ARGS, 60, 224, 333, 12, ES_AUTOHSCROLL
+    LTEXT           "&Title contains:", IDC_WS_L3, 7, 242, 50, 8
+    EDITTEXT        IDC_WS_TITLE, 60, 240, 333, 12, ES_AUTOHSCROLL
 END

@@ -43,16 +43,34 @@ typedef struct {
 enum { POS_MAXIMIZED, POS_LEFT, POS_RIGHT, POS_TOP, POS_BOTTOM, POS_LEFT_THIRD, POS_MIDDLE_THIRD, POS_RIGHT_THIRD,
        POS_CUSTOM, POSITIONS };
 typedef struct {                /* one of the workspace's apps */
+    int id;                     /* stable: what a monitor setup's places refer to */
     wchar_t name[64];           /* "Google Chrome" */
     wchar_t command[MAX_PATH + 64]; /* what to start: a program, or shell:AppsFolder\<app ID> for a Store app */
     wchar_t args[256];
     wchar_t match[MAX_PATH];    /* the program file its windows belong to (to find it when it's open) */
     wchar_t title[64];          /* only a window whose title contains this; "" = any */
-    wchar_t monitor[256];       /* the monitor's device path; "" = the main monitor */
-    wchar_t monitorName[64];
+} App;
+
+#define MAX_LAYOUTS 8
+#define MAX_LAYOUT_MONS 8
+typedef struct {                /* a monitor of a saved monitor setup */
+    wchar_t path[256];          /* device path */
+    wchar_t name[64];
+    RECT r, work;               /* its place in the desktop, and its work area, as it was saved */
+} LayoutMon;
+typedef struct {                /* where an app goes in a monitor setup */
+    int app;                    /* App.id */
+    int mon;                    /* index into the setup's monitors */
     int pos;                    /* POS_* */
     int x, y, w, h;             /* POS_CUSTOM: % of the monitor's work area */
-} App;
+} Place;
+typedef struct {                /* a saved monitor setup ("2026-11-24-1") and where each app goes on it */
+    wchar_t name[64];
+    int nmon;
+    LayoutMon mons[MAX_LAYOUT_MONS];
+    int nplace;
+    Place places[MAX_APPS];
+} Layout;
 
 typedef struct {
     int mouseType;              /* MOUSE_* */
@@ -71,6 +89,9 @@ typedef struct {
     int dlSort;                 /* DL_SORT_* */
     int appCount;               /* the workspace */
     App apps[MAX_APPS];
+    int nextAppId;
+    int layoutCount;
+    Layout layouts[MAX_LAYOUTS];
 } Settings;
 enum { DL_SORT_ADDED, DL_SORT_MODIFIED, DL_SORT_NAME, DL_SORT_KIND, DL_SORTS };
 #define WM_DL_COMMAND (WM_APP + 5)       /* "--downloads <command>" (from the jump list) -> running copy: wp = DL_CMD_* */
@@ -196,8 +217,18 @@ extern const wchar_t *POSITION_LABELS[POSITIONS];
 void workspace_launch(HWND owner);                   /* start the apps and place their windows */
 void workspace_tick(void);                           /* TIMER_WORKSPACE */
 void workspace_target(const RECT *work, int pos, int x, int y, int w, int h, RECT *out);
+int  workspace_snap(const RECT *mon, POINT p);       /* the position a drop at p in a monitor snaps to */
+int  workspace_current_monitors(LayoutMon *out, int max);
+int  workspace_find_layout(const LayoutMon *cur, int n);   /* the saved setup with these monitors; -1 */
+int  workspace_current_layout(void);                 /* the saved setup matching the monitors now; -1 */
+void workspace_capture_layout(Layout *l);            /* the monitors now, named "2026-11-24-1" */
+Place *workspace_place_of(Layout *l, int appId);     /* NULL if the app has no place in it */
+void workspace_set_place(Layout *l, const Place *p);
+void workspace_unplace(Layout *l, int appId);
+void workspace_remove_app(int index);                /* from the list and from every setup */
 HWND workspace_find(const App *a);                   /* the app's open window, or NULL */
 int  workspace_open_windows(HWND *out, int max);     /* open app windows, for "add from an open window" */
 void workspace_app_from_window(HWND w, App *a);
 void workspace_app_from_file(const wchar_t *path, App *a);
-BOOL workspace_use_current(App *a);                  /* its open window's place now; FALSE if it isn't open */
+BOOL workspace_place_from_window(HWND w, const Layout *l, Place *p);   /* where it is now, on l's monitors */
+HBITMAP workspace_app_icon(const App *a, int size);  /* 32-bit premultiplied, or NULL */

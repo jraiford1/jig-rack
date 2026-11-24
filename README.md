@@ -117,19 +117,26 @@ which passes the command to the running copy). The folder is read only when the 
 One click starts your standard apps and puts each window where you want it: right-click the tray icon and choose
 **Launch workspace**. An app that's already open isn't started again; its window is just moved into place.
 
-Set it up in **Settings → Workspace**: a list of apps, started in that order (**Up** and **Down** change it).
-**+** adds one, either from a window that's open now (it takes that app's program, monitor and current place) or
-from a program file. For each app:
+Where the apps go depends on the monitors you have connected, so it's kept per **monitor setup**: how many
+monitors, their sizes and where they sit (turning one to portrait makes a different setup). Launch workspace uses
+the saved setup that matches the monitors connected now; if none does, it starts the apps without placing them
+and says so.
 
-- **Program**: what to start: a program (`.exe`, a shortcut, a script), or `shell:AppsFolder\<app ID>` for a Store
-  app such as the new Outlook or Teams (filled in for you when you add it from its open window).
-- **Arguments** for it, and **Title contains** to pick one of its windows (for example one Chrome window of
-  several); empty means its top window.
-- **Monitor**: the main monitor or a particular one (remembered by its device path, like the hot corners; if it
-  isn't connected the app goes on the main monitor).
-- **Position**: maximized, the left or right half, the top or bottom half, a third (left, middle, right), or
-  custom: left, top, width and height in % of the monitor's work area. **Use current position** takes the app's
-  open window's place.
+Set it up in **Settings → Workspace**:
+
+- **Apps** (left), started in this order: **+** adds one, from a window that's open now (its program, or the app
+  ID for a Store app such as the new Outlook or Teams; it's also placed where that window is) or from a program
+  file; **-** removes it; **Up** and **Down** reorder. Below: the selected app's **Program**, **Arguments** and
+  **Title contains** (to pick one of its windows, for example one Chrome window of several).
+- **Monitor setup** (right): **Add current** saves the monitors you have now, named with the date and a number
+  (`2026-11-24-1`; change it under **Name**). **Remove** deletes the chosen one. The one matching your monitors
+  is marked "(these monitors)".
+- The picture shows the chosen setup's monitors, to scale, with each placed app's icon in the middle of where it
+  goes. **Drag an app** from the list onto a monitor and it snaps: on a landscape monitor the top band gives the
+  left half, maximized or the right half, and lower down the left, middle or right third; on a portrait monitor,
+  the top half, maximized or the bottom half. Drag a placed app to move it. **Right-click** it for every
+  position, **Where its window is now** (its exact place, kept in % of the monitor), or **Remove from this
+  setup**. Apps not placed in a setup are marked "(not placed)" and are just started.
 
 Each started app's window is waited for (up to a minute) and placed as soon as it shows, then once more a moment
 later, after the app has restored its own last position and adapted to the monitor's scaling. The window's
@@ -193,7 +200,7 @@ ran) `HKCU\Software\JigRack`.
 
 | Command | What it does |
 |---|---|
-| `JigRack.exe --selftest <log file>` | Runs the hot corner rules on scripted cursor timelines against your real monitor layout, a settings-file round trip, the eject menu's text, the Downloads panel's choice and order of items (in a scratch folder) and where each Workspace position puts a window, and writes the results to the log. Never acts. Expect `0 failure(s)`. |
+| `JigRack.exe --selftest <log file>` | Runs the hot corner rules on scripted cursor timelines against your real monitor layout, a settings-file round trip, the eject menu's text, the Downloads panel's choice and order of items (in a scratch folder) and where each Workspace position puts a window, where a drop snaps and which saved monitor setup matches, and writes the results to the log. Never acts. Expect `0 failure(s)`. |
 | `JigRack.exe --preview <folder>` | Writes the tray icons and the countdown overlay (with and without the battery warning) as PNGs and exits. |
 | `JigRack.exe --demo-countdown` | Shows the countdown at the first rule's corner, without any action. |
 | `JigRack.exe --snap-settings <folder>` | Opens the Settings window off-screen and saves each tab as a PNG. |

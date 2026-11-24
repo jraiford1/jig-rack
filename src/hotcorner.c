@@ -716,16 +716,31 @@ static void test_settings_file(void)
     wcscpy_s(a.apps[0].name, 64, L"Outlook");
     wcscpy_s(a.apps[0].command, ARRAYSIZE(a.apps[0].command), L"shell:AppsFolder\\Microsoft.OutlookForWindows_8wekyb3d8bbwe!Microsoft.OutlookforWindows");
     wcscpy_s(a.apps[0].match, MAX_PATH, L"C:\\Program Files\\WindowsApps\\Microsoft.OutlookForWindows\\olk.exe");
-    wcscpy_s(a.apps[0].monitor, 256, L"\\\\?\\DISPLAY#DELA1C4#5&1a2b3c&0&UID4357#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}");
-    wcscpy_s(a.apps[0].monitorName, 64, L"DELL U3223QE");
-    a.apps[0].pos = POS_CUSTOM;
-    a.apps[0].x = 5; a.apps[0].y = 0; a.apps[0].w = 95; a.apps[0].h = 50;
+    a.apps[0].id = 3;
     wcscpy_s(a.apps[1].name, 64, L"Google Chrome");
     wcscpy_s(a.apps[1].command, ARRAYSIZE(a.apps[1].command), L"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe");
     wcscpy_s(a.apps[1].match, MAX_PATH, a.apps[1].command);
     wcscpy_s(a.apps[1].args, 256, L"--profile-directory=\"Profile 1\"");
     wcscpy_s(a.apps[1].title, 64, L"LabWare 9");
-    a.apps[1].pos = POS_RIGHT_THIRD;
+    a.apps[1].id = 7;
+    a.nextAppId = 8;
+    a.layoutCount = 2;
+    wcscpy_s(a.layouts[0].name, 64, L"2026-11-24-1");
+    a.layouts[0].nmon = 2;
+    wcscpy_s(a.layouts[0].mons[0].path, 256, L"\\\\?\\DISPLAY#DELA1C4#5&1a2b3c&0&UID4357#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}");
+    wcscpy_s(a.layouts[0].mons[0].name, 64, L"DELL U3223QE");
+    SetRect(&a.layouts[0].mons[0].r, 0, -3240, 5760, 0);
+    a.layouts[0].mons[0].work = a.layouts[0].mons[0].r;
+    wcscpy_s(a.layouts[0].mons[1].name, 64, L"Built-in display");
+    SetRect(&a.layouts[0].mons[1].r, 0, 0, 3840, 2400);
+    SetRect(&a.layouts[0].mons[1].work, 0, 0, 3840, 2292);
+    a.layouts[0].nplace = 2;
+    a.layouts[0].places[0] = (Place){ 3, 0, POS_CUSTOM, 5, 0, 95, 50 };
+    a.layouts[0].places[1] = (Place){ 7, 1, POS_RIGHT_THIRD, 0, 0, 50, 100 };
+    wcscpy_s(a.layouts[1].name, 64, L"Caf\x00e9");
+    a.layouts[1].nmon = 1;
+    SetRect(&a.layouts[1].mons[0].r, 0, 0, 1920, 1080);
+    a.layouts[1].mons[0].work = a.layouts[1].mons[0].r;
     a.ruleCount = 3;
     rule_defaults(&a.rules[1]);
     rule_defaults(&a.rules[2]);
@@ -743,7 +758,8 @@ static void test_settings_file(void)
                 a.lowPercent == b.lowPercent && a.dlButton == b.dlButton && a.dlAllMonitors == b.dlAllMonitors &&
                 !wcscmp(a.dlIcon, b.dlIcon) && !wcscmp(a.dlFolder, b.dlFolder) && a.dlCount == b.dlCount &&
                 a.dlSort == b.dlSort && a.appCount == b.appCount &&
-                memcmp(a.apps, b.apps, a.appCount * sizeof(App)) == 0 &&
+                memcmp(a.apps, b.apps, a.appCount * sizeof(App)) == 0 && a.nextAppId == b.nextAppId &&
+                a.layoutCount == b.layoutCount && memcmp(a.layouts, b.layouts, a.layoutCount * sizeof(Layout)) == 0 &&
                 memcmp(a.rules, b.rules, sizeof a.rules) == 0;
     EXPECT(same, "settings file: saved and read back the same (3 rules, non-ASCII names)");
     a.ruleCount = 1;
@@ -902,6 +918,45 @@ static void test_workspace(void)
         EXPECT(ok, c[k].what);
         if (!ok) trace("  got %ld,%ld,%ld,%ld", r.left, r.top, r.right, r.bottom);
     }
+
+    /* dropping an app on a monitor in the picture */
+    RECT land = { 0, -3240, 5760, 0 }, port = { 5760, -4164, 8595, 876 };
+    struct { const RECT *m; int fx, fy, want; } d[] = {
+        { &land, 10, 10, POS_LEFT }, { &land, 50, 10, POS_MAXIMIZED }, { &land, 90, 10, POS_RIGHT },
+        { &land, 10, 60, POS_LEFT_THIRD }, { &land, 50, 60, POS_MIDDLE_THIRD }, { &land, 90, 60, POS_RIGHT_THIRD },
+        { &port, 50, 10, POS_TOP }, { &port, 50, 50, POS_MAXIMIZED }, { &port, 50, 90, POS_BOTTOM },
+    };
+    BOOL ok = TRUE;
+    for (int k = 0; k < (int)ARRAYSIZE(d); k++) {
+        POINT p = { d[k].m->left + MulDiv(d[k].m->right - d[k].m->left, d[k].fx, 100),
+                    d[k].m->top + MulDiv(d[k].m->bottom - d[k].m->top, d[k].fy, 100) };
+        int got = workspace_snap(d[k].m, p);
+        if (got != d[k].want) { ok = FALSE; trace("  drop at %d%%, %d%%: %ls, want %ls", d[k].fx, d[k].fy, POSITION_LABELS[got], POSITION_LABELS[d[k].want]); }
+    }
+    EXPECT(ok, "workspace: drops snap (landscape: halves and maximized on top, thirds below; portrait: top, maximized, bottom)");
+
+    /* which saved monitor setup matches the monitors connected */
+    ZeroMemory(g_set.layouts, sizeof g_set.layouts);
+    g_set.layoutCount = 2;
+    g_set.layouts[0].nmon = 2;
+    wcscpy_s(g_set.layouts[0].mons[0].path, 256, L"A");
+    SetRect(&g_set.layouts[0].mons[0].r, 0, 0, 3840, 2400);
+    wcscpy_s(g_set.layouts[0].mons[1].path, 256, L"B");
+    SetRect(&g_set.layouts[0].mons[1].r, 0, -3240, 5760, 0);
+    g_set.layouts[1].nmon = 1;
+    SetRect(&g_set.layouts[1].mons[0].r, 0, 0, 3840, 2400);
+    LayoutMon cur[2];
+    ZeroMemory(cur, sizeof cur);
+    wcscpy_s(cur[0].path, 256, L"B");
+    cur[0].r = g_set.layouts[0].mons[1].r;
+    wcscpy_s(cur[1].path, 256, L"A");
+    cur[1].r = g_set.layouts[0].mons[0].r;
+    EXPECT(workspace_find_layout(cur, 2) == 0, "workspace: the setup with the same monitors (in any order) matches");
+    wcscpy_s(cur[0].path, 256, L"B2");
+    EXPECT(workspace_find_layout(cur, 2) == 0, "workspace: same places and sizes but a new device path still match");
+    EXPECT(workspace_find_layout(&cur[1], 1) == 1, "workspace: just the laptop matches the one-monitor setup");
+    SetRect(&cur[0].r, 0, -5760, 3240, 0);                            /* the big one turned to portrait */
+    EXPECT(workspace_find_layout(cur, 2) == -1, "workspace: a rotated monitor is a different setup");
 }
 
 int hotcorner_selftest(void)

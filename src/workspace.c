@@ -1,18 +1,23 @@
 /* Jig Rack -- the Workspace jig.
  * Copyright (C) 2026 Jon Raiford. GPL-3.0-or-later; see LICENSE.
  *
- * One click (the tray menu's "Launch workspace") starts your standard apps and puts each window where the Workspace
- * tab says: on a chosen monitor, maximized, in a half or a third, or at a custom place. An app that's already open
- * isn't started again; its window is moved into place. Apps are started in order; each one's window is waited for
- * (up to a minute) and placed as soon as it shows, then placed once more a moment later, after the app has finished
- * restoring its own last position and adapting to the monitor's scaling. */
+ * One click (the tray menu's "Launch workspace") starts your standard apps and puts each window in place. Where each
+ * app goes is kept per monitor setup: a saved set of monitors (how many, their sizes, where they sit, so landscape
+ * and portrait differ), named like "2026-11-24-1". The launch uses the setup that matches the monitors connected
+ * now. An app that's already open isn't started again; its window is moved. A started app's window is waited for
+ * (up to a minute) and placed as soon as it shows, then once more a moment later, after the app has restored its
+ * own last place and adapted to the monitor's scaling. */
+#define COBJMACROS
 #include "jigrack.h"
 #include <dwmapi.h>
 #include <appmodel.h>
 #include <shlwapi.h>
+#include <shobjidl.h>
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "shlwapi.lib")
 #pragma comment(lib, "version.lib")
+#pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "uuid.lib")
 
 #define WAIT_MS 60000           /* how long to wait for a started app's window */
 #define SETTLE_MS 1500          /* when to place it again */
@@ -22,7 +27,7 @@ const wchar_t *POSITION_LABELS[POSITIONS] = {
     L"Left third", L"Middle third", L"Right third", L"Custom"
 };
 
-/* ---------------------------------------------------------------- where a window goes ------------------------- */
+/* ---------------------------------------------------------------- positions ----------------------------------- */
 
 /* The rectangle for a position in a monitor's work area (custom: x, y, w, h in % of it). */
 void workspace_target(const RECT *work, int pos, int x, int y, int w, int h, RECT *out)
@@ -52,35 +57,136 @@ void workspace_target(const RECT *work, int pos, int x, int y, int w, int h, REC
     *out = r;
 }
 
-/* The work area of the app's monitor; the main monitor if it's "" or isn't connected (then *missing). */
-static void app_work_area(const App *a, RECT *work, BOOL *missing)
+/* Where a drop at p snaps on a monitor. Landscape: the top band is left half / maximized / right half, below it
+   the thirds. Portrait: top half / maximized / bottom half from top to bottom. */
+int workspace_snap(const RECT *mon, POINT p)
 {
-    MonitorDesc m[16];
-    int n = monitors_list(m, 16);
-    HMONITOR mon = MonitorFromPoint((POINT){ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
-    *missing = FALSE;
-    if (a->monitor[0]) {
-        int k;
-        for (k = 0; k < n; k++) if (!_wcsicmp(m[k].path, a->monitor)) break;
-        if (k < n) mon = MonitorFromRect(&m[k].r, MONITOR_DEFAULTTOPRIMARY);
-        else *missing = TRUE;
+    int W = mon->right - mon->left, H = mon->bottom - mon->top;
+    if (W <= 0 || H <= 0) return POS_MAXIMIZED;
+    int fx = MulDiv(p.x - mon->left, 100, W), fy = MulDiv(p.y - mon->top, 100, H);   /* % across and down */
+    if (W >= H) {
+        if (fy < 30) return fx < 35 ? POS_LEFT : fx >= 65 ? POS_RIGHT : POS_MAXIMIZED;
+        return fx < 33 ? POS_LEFT_THIRD : fx < 67 ? POS_MIDDLE_THIRD : POS_RIGHT_THIRD;
     }
-    MONITORINFO mi = { sizeof mi };
-    GetMonitorInfoW(mon, &mi);
-    *work = mi.rcWork;
+    return fy < 30 ? POS_TOP : fy >= 70 ? POS_BOTTOM : POS_MAXIMIZED;
 }
 
-/* Put the window there: its visible frame on the target (windows have invisible resize borders around it). */
-static BOOL place(HWND w, const App *a)
+/* ---------------------------------------------------------------- monitor setups ------------------------------ */
+
+int workspace_current_monitors(LayoutMon *out, int max)
 {
-    RECT work, t;
-    BOOL missing;
-    app_work_area(a, &work, &missing);
-    workspace_target(&work, a->pos, a->x, a->y, a->w, a->h, &t);
+    MonitorDesc m[MAX_LAYOUT_MONS];
+    int n = monitors_list(m, max < MAX_LAYOUT_MONS ? max : MAX_LAYOUT_MONS);
+    for (int k = 0; k < n; k++) {
+        ZeroMemory(&out[k], sizeof out[k]);
+        wcscpy_s(out[k].path, ARRAYSIZE(out[k].path), m[k].path);
+        wcscpy_s(out[k].name, ARRAYSIZE(out[k].name), m[k].name);
+        out[k].r = m[k].r;
+        MONITORINFO mi = { sizeof mi };
+        GetMonitorInfoW(MonitorFromRect(&m[k].r, MONITOR_DEFAULTTONEAREST), &mi);
+        out[k].work = mi.rcWork;
+    }
+    return n;
+}
+
+/* Same monitors: as many, each in the same place at the same size (byPath: and the same device too). */
+static BOOL same_monitors(const Layout *l, const LayoutMon *cur, int n, BOOL byPath)
+{
+    if (l->nmon != n) return FALSE;
+    for (int i = 0; i < n; i++) {
+        int k;
+        for (k = 0; k < l->nmon; k++)
+            if (EqualRect(&l->mons[k].r, &cur[i].r) && (!byPath || !_wcsicmp(l->mons[k].path, cur[i].path))) break;
+        if (k == l->nmon) return FALSE;
+    }
+    return TRUE;
+}
+
+/* The saved setup for these monitors: the same devices in the same places, else any in the same places (a device
+   path can change after a driver update). -1 if none. */
+int workspace_find_layout(const LayoutMon *cur, int n)
+{
+    for (int pass = 0; pass < 2; pass++)
+        for (int i = 0; i < g_set.layoutCount; i++)
+            if (same_monitors(&g_set.layouts[i], cur, n, pass == 0)) return i;
+    return -1;
+}
+
+int workspace_current_layout(void)
+{
+    LayoutMon cur[MAX_LAYOUT_MONS];
+    int n = workspace_current_monitors(cur, MAX_LAYOUT_MONS);
+    int i = workspace_find_layout(cur, n);
+    static int logged = -2;
+    if (i != logged) {                                                /* say which, when it changes */
+        logged = i;
+        for (int k = 0; k < n; k++)
+            trace("workspace: monitor %d now at %ld,%ld,%ld,%ld", k + 1, cur[k].r.left, cur[k].r.top, cur[k].r.right, cur[k].r.bottom);
+        trace("workspace: saved setup for these monitors: %ls", i >= 0 ? g_set.layouts[i].name : L"(none)");
+    }
+    return i;
+}
+
+/* The monitors now, named with today's date and the next free number ("2026-11-24-2"). */
+void workspace_capture_layout(Layout *l)
+{
+    ZeroMemory(l, sizeof *l);
+    l->nmon = workspace_current_monitors(l->mons, MAX_LAYOUT_MONS);
+    SYSTEMTIME t;
+    GetLocalTime(&t);
+    wchar_t day[16];
+    swprintf_s(day, 16, L"%04d-%02d-%02d-", t.wYear, t.wMonth, t.wDay);
+    int next = 1;
+    for (int i = 0; i < g_set.layoutCount; i++) {
+        if (wcsncmp(g_set.layouts[i].name, day, 11)) continue;
+        int k = _wtoi(g_set.layouts[i].name + 11);
+        if (k >= next) next = k + 1;
+    }
+    swprintf_s(l->name, ARRAYSIZE(l->name), L"%s%d", day, next);
+}
+
+Place *workspace_place_of(Layout *l, int appId)
+{
+    for (int i = 0; i < l->nplace; i++) if (l->places[i].app == appId) return &l->places[i];
+    return NULL;
+}
+
+void workspace_set_place(Layout *l, const Place *p)
+{
+    Place *q = workspace_place_of(l, p->app);
+    if (!q && l->nplace < MAX_APPS) q = &l->places[l->nplace++];
+    if (q) *q = *p;
+}
+
+void workspace_unplace(Layout *l, int appId)
+{
+    for (int i = 0; i < l->nplace; i++)
+        if (l->places[i].app == appId) {
+            l->places[i] = l->places[--l->nplace];
+            return;
+        }
+}
+
+void workspace_remove_app(int index)
+{
+    if (index < 0 || index >= g_set.appCount) return;
+    int id = g_set.apps[index].id;
+    for (int i = 0; i < g_set.layoutCount; i++) workspace_unplace(&g_set.layouts[i], id);
+    MoveMemory(&g_set.apps[index], &g_set.apps[index + 1], (g_set.appCount - index - 1) * sizeof(App));
+    g_set.appCount--;
+}
+
+/* ---------------------------------------------------------------- placing a window ---------------------------- */
+
+/* Put the window on the target: its visible frame there (windows have invisible resize borders around it). */
+static BOOL place(HWND w, const App *a, const RECT *work, const Place *p)
+{
+    RECT t;
+    workspace_target(work, p->pos, p->x, p->y, p->w, p->h, &t);
     RECT wr, fr;
     GetWindowRect(w, &wr);
-    if (FAILED(DwmGetWindowAttribute(w, DWMWA_EXTENDED_FRAME_BOUNDS, &fr, sizeof fr))) fr = wr;
-    if (IsZoomed(w) || IsIconic(w)) { fr = wr; }                       /* margins are only right when restored */
+    if (IsZoomed(w) || IsIconic(w) || FAILED(DwmGetWindowAttribute(w, DWMWA_EXTENDED_FRAME_BOUNDS, &fr, sizeof fr)))
+        fr = wr;                                                      /* margins are only right when restored */
     RECT n = { t.left - (fr.left - wr.left), t.top - (fr.top - wr.top),
                t.right + (wr.right - fr.right), t.bottom + (wr.bottom - fr.bottom) };
     /* SetWindowPlacement moves a maximized or minimized window too; its coordinates are relative to the main
@@ -91,9 +197,8 @@ static BOOL place(HWND w, const App *a)
     GetWindowPlacement(w, &wp);
     wp.flags = 0;
     wp.rcNormalPosition = n;
-    OffsetRect(&wp.rcNormalPosition, -pm.rcWork.left, -pm.rcWork.top);
-    if (a->pos == POS_MAXIMIZED) {
-        wp.rcNormalPosition = (RECT){ work.left + 40, work.top + 40, work.right - 40, work.bottom - 40 };
+    if (p->pos == POS_MAXIMIZED) {
+        wp.rcNormalPosition = (RECT){ work->left + 40, work->top + 40, work->right - 40, work->bottom - 40 };
         OffsetRect(&wp.rcNormalPosition, -pm.rcWork.left, -pm.rcWork.top);
         if (IsZoomed(w)) {                                            /* maximized elsewhere: restore, then move */
             wp.showCmd = SW_SHOWNOACTIVATE;
@@ -101,17 +206,17 @@ static BOOL place(HWND w, const App *a)
         }
         wp.showCmd = SW_SHOWMAXIMIZED;
     } else {
+        OffsetRect(&wp.rcNormalPosition, -pm.rcWork.left, -pm.rcWork.top);
         wp.showCmd = SW_SHOWNOACTIVATE;
     }
     BOOL ok = SetWindowPlacement(w, &wp);
     DWORD err = ok ? 0 : GetLastError();
-    if (ok && a->pos != POS_MAXIMIZED)
+    if (ok && p->pos != POS_MAXIMIZED)
         ok = SetWindowPos(w, NULL, n.left, n.top, n.right - n.left, n.bottom - n.top,
                           SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS);
     if (!ok && !err) err = GetLastError();
     if (!ok) trace("workspace: %ls: can't move its window (error %lu%s)", a->name, err,
                    err == ERROR_ACCESS_DENIED ? ", it runs as administrator" : "");
-    if (missing) trace("workspace: %ls: its monitor (%ls) isn't connected; on the main one", a->name, a->monitorName);
     return ok;
 }
 
@@ -168,7 +273,6 @@ HWND workspace_find(const App *a)
     return c.found;
 }
 
-/* The open app windows, top first: for the Workspace tab's "Open app..." menu. */
 int workspace_open_windows(HWND *out, int max)
 {
     FindCtx c = { NULL, NULL, out, 0, max };
@@ -195,28 +299,18 @@ static void file_description(const wchar_t *path, wchar_t *out, int cch)
     HeapFree(GetProcessHeap(), 0, buf);
 }
 
-/* The monitor a window is mostly on, as a device path and name. */
-static void window_monitor(HWND w, wchar_t *path, int cchPath, wchar_t *name, int cchName, RECT *work)
+/* Where an open window is, as a place on a setup's monitors: maximized, or custom in % of the work area. FALSE if
+   it's on a monitor the setup doesn't have. */
+BOOL workspace_place_from_window(HWND w, const Layout *l, Place *p)
 {
-    HMONITOR mon = MonitorFromWindow(w, MONITOR_DEFAULTTONEAREST);
-    MONITORINFOEXW mi;
-    mi.cbSize = sizeof mi;
-    GetMonitorInfoW(mon, (MONITORINFO *)&mi);
-    *work = mi.rcWork;
-    path[0] = name[0] = 0;
-    MonitorDesc m[16];
-    int n = monitors_list(m, 16);
-    for (int k = 0; k < n; k++)
-        if (!_wcsicmp(m[k].gdi, mi.szDevice)) { wcscpy_s(path, cchPath, m[k].path); wcscpy_s(name, cchName, m[k].name); }
-}
-
-/* The window's current place as a position: maximized, or custom in % of its monitor's work area. */
-static void current_position(HWND w, App *a)
-{
-    RECT work;
-    window_monitor(w, a->monitor, ARRAYSIZE(a->monitor), a->monitorName, ARRAYSIZE(a->monitorName), &work);
-    if (IsZoomed(w)) { a->pos = POS_MAXIMIZED; return; }
-    RECT fr;
+    MONITORINFO mi = { sizeof mi };
+    GetMonitorInfoW(MonitorFromWindow(w, MONITOR_DEFAULTTONEAREST), &mi);
+    int k;
+    for (k = 0; k < l->nmon; k++) if (EqualRect(&l->mons[k].r, &mi.rcMonitor)) break;
+    if (k == l->nmon) return FALSE;
+    p->mon = k;
+    if (IsZoomed(w)) { p->pos = POS_MAXIMIZED; return TRUE; }
+    RECT fr, work = mi.rcWork;
     if (IsIconic(w)) {
         WINDOWPLACEMENT wp = { sizeof wp };
         GetWindowPlacement(w, &wp);
@@ -225,21 +319,15 @@ static void current_position(HWND w, App *a)
         GetWindowRect(w, &fr);
     }
     int W = work.right - work.left, H = work.bottom - work.top;
-    a->pos = POS_CUSTOM;
-    a->x = MulDiv(fr.left - work.left, 100, W);
-    a->y = MulDiv(fr.top - work.top, 100, H);
-    a->w = MulDiv(fr.right - fr.left, 100, W);
-    a->h = MulDiv(fr.bottom - fr.top, 100, H);
-    if (a->x < 0) a->x = 0;
-    if (a->y < 0) a->y = 0;
-    if (a->w < 1) a->w = 1;
-    if (a->h < 1) a->h = 1;
-    if (a->w > 100) a->w = 100;
-    if (a->h > 100) a->h = 100;
+    p->pos = POS_CUSTOM;
+    p->x = max(0, min(100, MulDiv(fr.left - work.left, 100, W)));
+    p->y = max(0, min(100, MulDiv(fr.top - work.top, 100, H)));
+    p->w = max(1, min(100, MulDiv(fr.right - fr.left, 100, W)));
+    p->h = max(1, min(100, MulDiv(fr.bottom - fr.top, 100, H)));
+    return TRUE;
 }
 
-/* Fill an app from an open window: what to start (the program, or the Store app's ID), how to find it, its name,
-   monitor and current place. */
+/* Fill an app from an open window: what to start (the program, or the Store app's ID), how to find it, its name. */
 void workspace_app_from_window(HWND w, App *a)
 {
     ZeroMemory(a, sizeof *a);
@@ -257,19 +345,8 @@ void workspace_app_from_window(HWND w, App *a)
     }
     file_description(a->match, a->name, ARRAYSIZE(a->name));
     if (!a->name[0]) GetWindowTextW(w, a->name, ARRAYSIZE(a->name));
-    current_position(w, a);
 }
 
-/* "Use current position": the app's open window's place now. FALSE if it isn't open. */
-BOOL workspace_use_current(App *a)
-{
-    HWND w = workspace_find(a);
-    if (!w) return FALSE;
-    current_position(w, a);
-    return TRUE;
-}
-
-/* Fill name and match from a program file chosen with Browse. */
 void workspace_app_from_file(const wchar_t *path, App *a)
 {
     wcscpy_s(a->command, ARRAYSIZE(a->command), path);
@@ -281,10 +358,24 @@ void workspace_app_from_file(const wchar_t *path, App *a)
     }
 }
 
+/* The app's icon as a 32-bit premultiplied bitmap (works for programs and Store apps alike). */
+HBITMAP workspace_app_icon(const App *a, int size)
+{
+    const wchar_t *src = a->command[0] ? a->command : a->match;
+    IShellItemImageFactory *f = NULL;
+    HBITMAP bmp = NULL;
+    if (src[0] && SUCCEEDED(SHCreateItemFromParsingName(src, NULL, &IID_IShellItemImageFactory, (void **)&f))) {
+        SIZE sz = { size, size };
+        IShellItemImageFactory_GetImage(f, sz, SIIGBF_ICONONLY | SIIGBF_BIGGERSIZEOK, &bmp);
+        IShellItemImageFactory_Release(f);
+    }
+    return bmp;
+}
+
 /* ---------------------------------------------------------------- launching ----------------------------------- */
 
-enum { ST_IDLE, ST_WAITING, ST_SETTLING, ST_DONE, ST_FAILED };
-static struct { int state; HWND w; ULONGLONG until; } g_run[MAX_APPS];
+enum { ST_IDLE, ST_WAITING, ST_SETTLING, ST_DONE, ST_FAILED, ST_UNPLACED };
+static struct { int state; HWND w; ULONGLONG until; Place place; RECT work; } g_run[MAX_APPS];
 static int g_count;
 static HWND g_owner;
 
@@ -296,12 +387,12 @@ static void finish_if_done(void)
         if (g_run[i].state == ST_FAILED) failed++; else done++;
     }
     KillTimer(g_owner, TIMER_WORKSPACE);
-    trace("workspace: done, %d placed, %d failed", done, failed);
+    trace("workspace: done, %d placed or started, %d failed", done, failed);
     if (failed) {
         wchar_t text[256] = L"", *sep = L"";
         for (int i = 0; i < g_count; i++) {
             if (g_run[i].state != ST_FAILED) continue;
-            if (wcslen(text) + wcslen(g_set.apps[i].name) + 3 >= ARRAYSIZE(text)) break;
+            if (wcslen(text) + wcslen(g_set.apps[i].name) + 24 >= ARRAYSIZE(text)) break;
             wcscat_s(text, ARRAYSIZE(text), sep);
             wcscat_s(text, ARRAYSIZE(text), g_set.apps[i].name);
             sep = L", ";
@@ -315,14 +406,32 @@ void workspace_launch(HWND owner)
 {
     g_owner = owner;
     g_count = g_set.appCount;
-    trace("workspace: launching %d app(s)", g_count);
+    LayoutMon cur[MAX_LAYOUT_MONS];
+    int ncur = workspace_current_monitors(cur, MAX_LAYOUT_MONS);
+    int li = workspace_find_layout(cur, ncur);
+    Layout *l = li >= 0 ? &g_set.layouts[li] : NULL;
+    trace("workspace: launching %d app(s) on setup %ls", g_count, l ? l->name : L"(none saved for these monitors)");
+    if (!l) tray_notify(FALSE, L"Workspace", L"These monitors aren't a saved setup yet, so the apps are started but not "
+                                              L"placed. Add them on Settings > Workspace.");
     ULONGLONG now = GetTickCount64();
     for (int i = 0; i < g_count; i++) {
         const App *a = &g_set.apps[i];
+        const Place *p = l ? workspace_place_of(l, a->id) : NULL;
+        g_run[i].state = ST_UNPLACED;
+        if (p) {
+            g_run[i].place = *p;
+            /* the setup's monitor, as it is now (same device, else same place) */
+            const LayoutMon *m = &l->mons[p->mon];
+            int k;
+            for (k = 0; k < ncur; k++) if (!_wcsicmp(cur[k].path, m->path)) break;
+            if (k == ncur) for (k = 0; k < ncur; k++) if (EqualRect(&cur[k].r, &m->r)) break;
+            g_run[i].work = k < ncur ? cur[k].work : m->work;
+        }
         g_run[i].w = workspace_find(a);
         if (g_run[i].w) {
+            if (!p) { trace("workspace: %ls is open (no place on this setup)", a->name); continue; }
             trace("workspace: %ls is open: placing it", a->name);
-            place(g_run[i].w, a);
+            place(g_run[i].w, a, &g_run[i].work, &g_run[i].place);
             g_run[i].state = ST_SETTLING;
             g_run[i].until = now + SETTLE_MS;
             continue;
@@ -335,8 +444,8 @@ void workspace_launch(HWND owner)
         sei.nShow = SW_SHOWNORMAL;
         BOOL ok = ShellExecuteExW(&sei);
         trace("workspace: starting %ls (%ls %ls): %s", a->name, a->command, a->args, ok ? "ok" : "failed");
-        g_run[i].state = ok ? ST_WAITING : ST_FAILED;
-        g_run[i].until = now + WAIT_MS;
+        if (!ok) { g_run[i].state = ST_FAILED; continue; }
+        if (p) { g_run[i].state = ST_WAITING; g_run[i].until = now + WAIT_MS; }
     }
     SetTimer(owner, TIMER_WORKSPACE, 250, NULL);
     finish_if_done();
@@ -345,13 +454,13 @@ void workspace_launch(HWND owner)
 void workspace_tick(void)
 {
     ULONGLONG now = GetTickCount64();
-    for (int i = 0; i < g_count; i++) {
+    for (int i = 0; i < g_count && i < g_set.appCount; i++) {
         const App *a = &g_set.apps[i];
         if (g_run[i].state == ST_WAITING) {
             HWND w = workspace_find(a);
             if (w) {
                 trace("workspace: %ls opened: placing it", a->name);
-                place(w, a);
+                place(w, a, &g_run[i].work, &g_run[i].place);
                 g_run[i].w = w;
                 g_run[i].state = ST_SETTLING;
                 g_run[i].until = now + SETTLE_MS;
@@ -362,7 +471,7 @@ void workspace_tick(void)
         } else if (g_run[i].state == ST_SETTLING && now >= g_run[i].until) {
             /* again: the app may have restored its own last place, or rescaled for the monitor */
             HWND w = IsWindow(g_run[i].w) ? g_run[i].w : workspace_find(a);
-            if (w) place(w, a);
+            if (w) place(w, a, &g_run[i].work, &g_run[i].place);
             g_run[i].state = ST_DONE;
         }
     }

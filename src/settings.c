@@ -72,6 +72,7 @@ void settings_defaults(Settings *s)
     s->lowPercent = 20;
     s->dlAllMonitors = 1;
     s->dlCount = 20;
+    s->nextAppId = 1;
     s->ruleCount = 1;
     rule_defaults(&s->rules[0]);
 }
@@ -129,23 +130,55 @@ void settings_load(Settings *s)
     s->appCount = get_int(L"Workspace", L"Count", 0);
     if (s->appCount < 0) s->appCount = 0;
     if (s->appCount > MAX_APPS) s->appCount = MAX_APPS;
+    s->nextAppId = get_int(L"Workspace", L"NextId", 1);
     for (int i = 0; i < s->appCount; i++) {
         App *a = &s->apps[i];
         wchar_t sec[32];
         swprintf_s(sec, 32, L"App%d", i + 1);
+        a->id = get_int(sec, L"Id", i + 1);
+        if (a->id >= s->nextAppId) s->nextAppId = a->id + 1;
         get_str(sec, L"Name", a->name, ARRAYSIZE(a->name));
         get_str(sec, L"Command", a->command, ARRAYSIZE(a->command));
         get_str(sec, L"Args", a->args, ARRAYSIZE(a->args));
         get_str(sec, L"Match", a->match, ARRAYSIZE(a->match));
         get_str(sec, L"Title", a->title, ARRAYSIZE(a->title));
-        get_str(sec, L"Monitor", a->monitor, ARRAYSIZE(a->monitor));
-        get_str(sec, L"MonitorName", a->monitorName, ARRAYSIZE(a->monitorName));
-        get_str(sec, L"Position", v, 64);
-        a->pos = find_key(v, POS_KEYS, POSITIONS, POS_MAXIMIZED);
-        a->x = get_int(sec, L"Left", 0);
-        a->y = get_int(sec, L"Top", 0);
-        a->w = get_int(sec, L"Width", 50);
-        a->h = get_int(sec, L"Height", 100);
+    }
+    s->layoutCount = get_int(L"Workspace", L"Setups", 0);
+    if (s->layoutCount < 0) s->layoutCount = 0;
+    if (s->layoutCount > MAX_LAYOUTS) s->layoutCount = MAX_LAYOUTS;
+    for (int i = 0; i < s->layoutCount; i++) {
+        Layout *l = &s->layouts[i];
+        wchar_t sec[32], key[32], t[128];
+        swprintf_s(sec, 32, L"Setup%d", i + 1);
+        get_str(sec, L"Name", l->name, ARRAYSIZE(l->name));
+        l->nmon = get_int(sec, L"Monitors", 0);
+        if (l->nmon < 0) l->nmon = 0;
+        if (l->nmon > MAX_LAYOUT_MONS) l->nmon = MAX_LAYOUT_MONS;
+        for (int k = 0; k < l->nmon; k++) {
+            LayoutMon *m = &l->mons[k];
+            swprintf_s(key, 32, L"Mon%dPath", k + 1);
+            get_str(sec, key, m->path, ARRAYSIZE(m->path));
+            swprintf_s(key, 32, L"Mon%dName", k + 1);
+            get_str(sec, key, m->name, ARRAYSIZE(m->name));
+            swprintf_s(key, 32, L"Mon%dRect", k + 1);
+            get_str(sec, key, t, 128);
+            swscanf_s(t, L"%ld,%ld,%ld,%ld", &m->r.left, &m->r.top, &m->r.right, &m->r.bottom);
+            swprintf_s(key, 32, L"Mon%dWork", k + 1);
+            get_str(sec, key, t, 128);
+            if (swscanf_s(t, L"%ld,%ld,%ld,%ld", &m->work.left, &m->work.top, &m->work.right, &m->work.bottom) != 4)
+                m->work = m->r;
+        }
+        int np = get_int(sec, L"Places", 0);
+        for (int k = 0; k < np && l->nplace < MAX_APPS; k++) {
+            Place *p = &l->places[l->nplace];
+            wchar_t pos[32] = L"";
+            swprintf_s(key, 32, L"Place%d", k + 1);
+            get_str(sec, key, t, 128);
+            if (swscanf_s(t, L"%d,%d,%31[^,],%d,%d,%d,%d", &p->app, &p->mon, pos, 32, &p->x, &p->y, &p->w, &p->h) != 7) continue;
+            p->pos = find_key(pos, POS_KEYS, POSITIONS, POS_MAXIMIZED);
+            if (p->mon < 0 || p->mon >= l->nmon) continue;
+            l->nplace++;
+        }
     }
 
     int n = get_int(L"HotCorners", L"Count", 0);
@@ -223,23 +256,48 @@ BOOL settings_save(const Settings *s)
     ok &= put_int(L"Downloads", L"Count", s->dlCount);
     ok &= put(L"Downloads", L"Sort", SORT_KEYS[s->dlSort]);
     ok &= put_int(L"Workspace", L"Count", s->appCount);
+    ok &= put_int(L"Workspace", L"NextId", s->nextAppId);
     for (int i = 0; i < MAX_APPS; i++) {
         wchar_t sec[32];
         swprintf_s(sec, 32, L"App%d", i + 1);
         if (i >= s->appCount) { WritePrivateProfileStringW(sec, NULL, NULL, g_file); continue; }   /* drop it */
         const App *a = &s->apps[i];
+        ok &= put_int(sec, L"Id", a->id);
         ok &= put(sec, L"Name", a->name);
         ok &= put(sec, L"Command", a->command);
         ok &= put(sec, L"Args", a->args);
         ok &= put(sec, L"Match", a->match);
         ok &= put(sec, L"Title", a->title);
-        ok &= put(sec, L"Monitor", a->monitor);
-        ok &= put(sec, L"MonitorName", a->monitorName);
-        ok &= put(sec, L"Position", POS_KEYS[a->pos]);
-        ok &= put_int(sec, L"Left", a->x);
-        ok &= put_int(sec, L"Top", a->y);
-        ok &= put_int(sec, L"Width", a->w);
-        ok &= put_int(sec, L"Height", a->h);
+    }
+    ok &= put_int(L"Workspace", L"Setups", s->layoutCount);
+    for (int i = 0; i < MAX_LAYOUTS; i++) {
+        wchar_t sec[32], key[32], t[160];
+        swprintf_s(sec, 32, L"Setup%d", i + 1);
+        WritePrivateProfileStringW(sec, NULL, NULL, g_file);          /* rewritten whole: no stale monitors or places */
+        if (i >= s->layoutCount) continue;
+        const Layout *l = &s->layouts[i];
+        ok &= put(sec, L"Name", l->name);
+        ok &= put_int(sec, L"Monitors", l->nmon);
+        for (int k = 0; k < l->nmon; k++) {
+            const LayoutMon *m = &l->mons[k];
+            swprintf_s(key, 32, L"Mon%dPath", k + 1);
+            ok &= put(sec, key, m->path);
+            swprintf_s(key, 32, L"Mon%dName", k + 1);
+            ok &= put(sec, key, m->name);
+            swprintf_s(key, 32, L"Mon%dRect", k + 1);
+            swprintf_s(t, 160, L"%ld,%ld,%ld,%ld", m->r.left, m->r.top, m->r.right, m->r.bottom);
+            ok &= put(sec, key, t);
+            swprintf_s(key, 32, L"Mon%dWork", k + 1);
+            swprintf_s(t, 160, L"%ld,%ld,%ld,%ld", m->work.left, m->work.top, m->work.right, m->work.bottom);
+            ok &= put(sec, key, t);
+        }
+        ok &= put_int(sec, L"Places", l->nplace);
+        for (int k = 0; k < l->nplace; k++) {
+            const Place *p = &l->places[k];
+            swprintf_s(key, 32, L"Place%d", k + 1);
+            swprintf_s(t, 160, L"%d,%d,%s,%d,%d,%d,%d", p->app, p->mon, POS_KEYS[p->pos], p->x, p->y, p->w, p->h);
+            ok &= put(sec, key, t);
+        }
     }
     ok &= put_int(L"HotCorners", L"Count", s->ruleCount);
     for (int i = 0; i < MAX_RULES; i++) {
