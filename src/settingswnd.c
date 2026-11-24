@@ -3,6 +3,7 @@
 #define COBJMACROS
 #include "jigrack.h"
 #include "resource.h"
+#include "version.h"
 #include "gdip.h"
 #include <uxtheme.h>
 #include <stdlib.h>
@@ -1214,6 +1215,7 @@ static INT_PTR CALLBACK main_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     switch (msg) {
     case WM_INITDIALOG: {
         g_dlg = h;
+        SetDlgItemTextW(h, IDC_VERSION, APP_NAME L" " JR_VERSION_WSTR);
         SendMessageW(h, WM_SETICON, ICON_BIG, (LPARAM)LoadImageW(g_inst, MAKEINTRESOURCEW(IDI_APP), IMAGE_ICON,
                      GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), 0));
         SendMessageW(h, WM_SETICON, ICON_SMALL, (LPARAM)LoadImageW(g_inst, MAKEINTRESOURCEW(IDI_APP), IMAGE_ICON,

@@ -67,3 +67,4 @@
 #define IDC_WS_DELLAYOUT        1442
 #define IDC_WS_LAYOUTNAME       1443
 #define IDC_WS_CANVAS           1444
+#define IDC_VERSION             1001

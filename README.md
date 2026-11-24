@@ -150,7 +150,8 @@ The tray icon is the Jig Rack icon (a workshop pegboard with a wrench and a scre
 meter if you've chosen to show it. Right-click it for **Launch workspace** (once there are apps on the Workspace tab), **Eject** (one item per
 removable drive), **Settings…** and **Exit** (double-clicking the icon opens Settings too).
 
-**Settings** opens a window with a tab for each jig. Every change is saved and takes effect at once; there's
+**Settings** opens a window with a tab for each jig; its bottom-left corner shows the version (for example
+"Jig Rack 1.2.0"). Every change is saved and takes effect at once; there's
 nothing to apply and no restart. The settings live in `%APPDATA%\Jig Rack\settings.ini` (UTF-16, written by the
 window). With no settings file nothing is set up: no mouse is chosen, there are no hot corners, no Downloads button
 and no workspace apps.
@@ -181,6 +182,7 @@ builds again.
 | `src\media.c` | The eject media jig |
 | `src\downloads.c` | The Downloads jig: the taskbar buttons, the panel and the right-click menu |
 | `src\workspace.c` | The Workspace jig: starting the apps and placing their windows |
+| `src\version.h` | The version (also in `src\jigrack.manifest`); a release zip is named `JigRack-<version>.zip` |
 | `src\icons.c` | The tray icons (GDI+), previews and the `.ico` |
 
 ## Install

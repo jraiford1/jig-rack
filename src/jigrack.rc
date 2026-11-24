@@ -2,6 +2,7 @@
 #include <winuser.h>
 #include <commctrl.h>
 #include "resource.h"
+#include "version.h"
 
 #ifndef NO_ICON
 IDI_APP ICON "jigrack.ico"
@@ -10,8 +11,8 @@ IDI_APP ICON "jigrack.ico"
 CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "jigrack.manifest"
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 1,1,0,0
- PRODUCTVERSION 1,1,0,0
+ FILEVERSION JR_VERSION_NUM
+ PRODUCTVERSION JR_VERSION_NUM
  FILEFLAGSMASK 0x3fL
  FILEFLAGS 0x0L
  FILEOS VOS_NT_WINDOWS32
@@ -24,8 +25,8 @@ BEGIN
         BEGIN
             VALUE "FileDescription", "Jig Rack"
             VALUE "ProductName", "Jig Rack"
-            VALUE "FileVersion", "1.1.0.0"
-            VALUE "ProductVersion", "1.1.0.0"
+            VALUE "FileVersion", JR_VERSION_RC
+            VALUE "ProductVersion", JR_VERSION_RC
             VALUE "OriginalFilename", "JigRack.exe"
             VALUE "InternalName", "JigRack"
             VALUE "LegalCopyright", "Copyright (C) 2026 Jon Raiford. GPL-3.0-or-later."
@@ -44,6 +45,7 @@ CAPTION "Jig Rack Settings"
 FONT 9, "Segoe UI", 400, 0, 0x1
 BEGIN
     CONTROL         "", IDC_TABS, "SysTabControl32", WS_TABSTOP, 7, 7, 406, 282
+    LTEXT           "", IDC_VERSION, 9, 298, 200, 8
     DEFPUSHBUTTON   "Close", IDOK, 363, 295, 50, 14
 END
 

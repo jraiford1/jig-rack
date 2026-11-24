@@ -16,6 +16,7 @@
  */
 #include "jigrack.h"
 #include "resource.h"
+#include "version.h"
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "gdi32.lib")
 #pragma comment(lib, "shell32.lib")
@@ -305,7 +306,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show_cmd)
     logpath[len] = 0;
     wcscat_s(logpath, MAX_PATH, L"jigrack.log");
     open_log(logpath);
-    trace("Jig Rack started");
+    trace("Jig Rack " JR_VERSION_STR " started");
     OleInitialize(NULL);                                    /* the Downloads panel: drag and drop, shell items */
     settings_load(&g_set);
     g_taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
