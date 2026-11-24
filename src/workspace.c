@@ -191,13 +191,19 @@ static BOOL place(HWND w, const App *a, const RECT *work, const Place *p)
         fr = wr;                                                      /* margins are only right when restored */
     RECT n = { t.left - (fr.left - wr.left), t.top - (fr.top - wr.top),
                t.right + (wr.right - fr.right), t.bottom + (wr.bottom - fr.bottom) };
-    /* An app that isn't per-monitor DPI aware (HCL Notes) is scaled for whichever monitor Windows thinks it's on:
-       let even its invisible border reach onto the next monitor and it's sized with that monitor's scaling (1890 px
-       asked became 3188). So it stays wholly on its monitor; its edge may sit a few pixels in. */
+    /* An app that isn't per-monitor DPI aware (HCL Notes) is sized with the scaling of the monitor its top-left
+       corner lands on: let its invisible border reach onto the monitor to the left or above and it's scaled for
+       that one (1890 px asked became 3188). So it's sized with its corner on its own monitor (shifted right and
+       down just enough), then only moved the few pixels into place, which doesn't rescale it. */
+    RECT sized = n;
+    BOOL shift = FALSE;
     if (GetAwarenessFromDpiAwarenessContext(GetWindowDpiAwarenessContext(w)) != DPI_AWARENESS_PER_MONITOR_AWARE) {
         MONITORINFO mm = { sizeof mm };
         GetMonitorInfoW(MonitorFromRect(&t, MONITOR_DEFAULTTONEAREST), &mm);
-        IntersectRect(&n, &n, &mm.rcMonitor);
+        int dx = mm.rcMonitor.left > n.left ? mm.rcMonitor.left - n.left : 0;
+        int dy = mm.rcMonitor.top > n.top ? mm.rcMonitor.top - n.top : 0;
+        OffsetRect(&sized, dx, dy);
+        shift = dx || dy;
     }
     /* SetWindowPlacement moves a maximized or minimized window too; its coordinates are relative to the main
        monitor's work area. */
@@ -206,7 +212,7 @@ static BOOL place(HWND w, const App *a, const RECT *work, const Place *p)
     WINDOWPLACEMENT wp = { sizeof wp };
     GetWindowPlacement(w, &wp);
     wp.flags = 0;
-    wp.rcNormalPosition = n;
+    wp.rcNormalPosition = sized;
     if (p->pos == POS_MAXIMIZED) {
         wp.rcNormalPosition = (RECT){ work->left + 40, work->top + 40, work->right - 40, work->bottom - 40 };
         OffsetRect(&wp.rcNormalPosition, -pm.rcWork.left, -pm.rcWork.top);
@@ -221,9 +227,11 @@ static BOOL place(HWND w, const App *a, const RECT *work, const Place *p)
     }
     BOOL ok = SetWindowPlacement(w, &wp);
     DWORD err = ok ? 0 : GetLastError();
-    if (ok && p->pos != POS_MAXIMIZED)
-        ok = SetWindowPos(w, NULL, n.left, n.top, n.right - n.left, n.bottom - n.top,
-                          SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS);
+    if (ok && p->pos != POS_MAXIMIZED) {
+        UINT f = SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS;
+        ok = SetWindowPos(w, NULL, sized.left, sized.top, sized.right - sized.left, sized.bottom - sized.top, f);
+        if (ok && shift) ok = SetWindowPos(w, NULL, n.left, n.top, 0, 0, f | SWP_NOSIZE);   /* in order: same queue */
+    }
     if (!ok && !err) err = GetLastError();
     if (!ok) trace("workspace: %ls: can't move its window (error %lu%s)", a->name, err,
                    err == ERROR_ACCESS_DENIED ? ", it runs as administrator" : "");
