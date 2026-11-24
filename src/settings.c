@@ -2,8 +2,8 @@
  * Copyright (C) 2026 Jon Raiford. GPL-3.0-or-later; see LICENSE.
  *
  * The file is UTF-16 (so monitor and device names keep any character) and read and written with the
- * Get/WritePrivateProfile functions. With no file, the defaults apply: no mouse chosen (the tray shows the Jig Rack
- * icon) and one hot corner rule, the top-right of the workspace locks the PC after 5 s with a countdown.
+ * Get/WritePrivateProfile functions. With no file, the defaults apply: nothing is set up (no mouse chosen, so the
+ * tray shows the Jig Rack icon; no hot corners; no Downloads button; no workspace apps).
  */
 #include "jigrack.h"
 #include <shlobj.h>
@@ -21,6 +21,21 @@ static const wchar_t *ACTION_KEYS[ACTIONS] = { L"lock", L"sleep", L"screens-off"
 static const wchar_t *ACTION_NAMES[ACTIONS] = { L"Lock the PC", L"Sleep", L"Turn off the screens", L"Show the desktop",
                                                  L"Task View", L"Run a command" };
 static const wchar_t *MOUSE_KEYS[MOUSE_TYPES] = { L"none", L"logitech" };
+static const wchar_t *SORT_KEYS[DL_SORTS] = { L"added", L"modified", L"name", L"kind" };
+static const wchar_t *POS_KEYS[POSITIONS] = { L"maximized", L"left", L"right", L"top", L"bottom", L"left-third",
+                                              L"middle-third", L"right-third", L"custom" };
+
+BOOL mouse_chosen(const Settings *s)
+{
+    return s->mouseType == MOUSE_LOGITECH && s->productId;
+}
+
+/* Worth a warning: a mouse is chosen, it isn't charging, and its last reading (even while it sleeps) is low. */
+BOOL mouse_battery_low(void)
+{
+    const Battery *b = &g_battery;
+    return mouse_chosen(&g_set) && b->ok && !b->charging && b->percent <= g_set.lowPercent;
+}
 
 const wchar_t *corner_label(int c) { return c >= 0 && c < CORNERS ? CORNER_NAMES[c] : L"?"; }
 const wchar_t *action_label(int a) { return a >= 0 && a < ACTIONS ? ACTION_NAMES[a] : L"?"; }
@@ -54,8 +69,11 @@ void settings_defaults(Settings *s)
     ZeroMemory(s, sizeof *s);
     s->mouseType = MOUSE_NONE;
     s->showMeter = 1;
-    s->ruleCount = 1;
-    rule_defaults(&s->rules[0]);
+    s->lowPercent = 20;
+    s->dlAllMonitors = 1;
+    s->dlCount = 20;
+    s->nextAppId = 1;
+    s->ruleCount = 0;                       /* no hot corners until you add one */
 }
 
 static int find_key(const wchar_t *v, const wchar_t *const *keys, int n, int dflt)
@@ -94,6 +112,73 @@ void settings_load(Settings *s)
     s->deviceIndex = get_int(L"Mouse", L"Index", 1);
     get_str(L"Mouse", L"Name", s->deviceName, 64);
     s->showMeter = get_int(L"Mouse", L"ShowMeter", 1) != 0;
+    s->lowPercent = get_int(L"Mouse", L"Low", 20);
+    if (s->lowPercent < 1) s->lowPercent = 1;
+    if (s->lowPercent > 99) s->lowPercent = 99;
+
+    s->dlButton = get_int(L"Downloads", L"Button", 0) != 0;
+    s->dlAllMonitors = get_int(L"Downloads", L"AllMonitors", 1) != 0;
+    get_str(L"Downloads", L"Icon", s->dlIcon, ARRAYSIZE(s->dlIcon));
+    get_str(L"Downloads", L"Folder", s->dlFolder, MAX_PATH);
+    s->dlCount = get_int(L"Downloads", L"Count", 20);
+    if (s->dlCount < 1) s->dlCount = 1;
+    if (s->dlCount > 100) s->dlCount = 100;
+    get_str(L"Downloads", L"Sort", v, 64);
+    s->dlSort = find_key(v, SORT_KEYS, DL_SORTS, DL_SORT_ADDED);
+
+    s->appCount = get_int(L"Workspace", L"Count", 0);
+    if (s->appCount < 0) s->appCount = 0;
+    if (s->appCount > MAX_APPS) s->appCount = MAX_APPS;
+    s->nextAppId = get_int(L"Workspace", L"NextId", 1);
+    for (int i = 0; i < s->appCount; i++) {
+        App *a = &s->apps[i];
+        wchar_t sec[32];
+        swprintf_s(sec, 32, L"App%d", i + 1);
+        a->id = get_int(sec, L"Id", i + 1);
+        if (a->id >= s->nextAppId) s->nextAppId = a->id + 1;
+        get_str(sec, L"Name", a->name, ARRAYSIZE(a->name));
+        get_str(sec, L"Command", a->command, ARRAYSIZE(a->command));
+        get_str(sec, L"Args", a->args, ARRAYSIZE(a->args));
+        get_str(sec, L"Match", a->match, ARRAYSIZE(a->match));
+        get_str(sec, L"Title", a->title, ARRAYSIZE(a->title));
+    }
+    s->layoutCount = get_int(L"Workspace", L"Setups", 0);
+    if (s->layoutCount < 0) s->layoutCount = 0;
+    if (s->layoutCount > MAX_LAYOUTS) s->layoutCount = MAX_LAYOUTS;
+    for (int i = 0; i < s->layoutCount; i++) {
+        Layout *l = &s->layouts[i];
+        wchar_t sec[32], key[32], t[128];
+        swprintf_s(sec, 32, L"Setup%d", i + 1);
+        get_str(sec, L"Name", l->name, ARRAYSIZE(l->name));
+        l->nmon = get_int(sec, L"Monitors", 0);
+        if (l->nmon < 0) l->nmon = 0;
+        if (l->nmon > MAX_LAYOUT_MONS) l->nmon = MAX_LAYOUT_MONS;
+        for (int k = 0; k < l->nmon; k++) {
+            LayoutMon *m = &l->mons[k];
+            swprintf_s(key, 32, L"Mon%dPath", k + 1);
+            get_str(sec, key, m->path, ARRAYSIZE(m->path));
+            swprintf_s(key, 32, L"Mon%dName", k + 1);
+            get_str(sec, key, m->name, ARRAYSIZE(m->name));
+            swprintf_s(key, 32, L"Mon%dRect", k + 1);
+            get_str(sec, key, t, 128);
+            swscanf_s(t, L"%ld,%ld,%ld,%ld", &m->r.left, &m->r.top, &m->r.right, &m->r.bottom);
+            swprintf_s(key, 32, L"Mon%dWork", k + 1);
+            get_str(sec, key, t, 128);
+            if (swscanf_s(t, L"%ld,%ld,%ld,%ld", &m->work.left, &m->work.top, &m->work.right, &m->work.bottom) != 4)
+                m->work = m->r;
+        }
+        int np = get_int(sec, L"Places", 0);
+        for (int k = 0; k < np && l->nplace < MAX_APPS; k++) {
+            Place *p = &l->places[l->nplace];
+            wchar_t pos[32] = L"";
+            swprintf_s(key, 32, L"Place%d", k + 1);
+            get_str(sec, key, t, 128);
+            if (swscanf_s(t, L"%d,%d,%31[^,],%d,%d,%d,%d", &p->app, &p->mon, pos, 32, &p->x, &p->y, &p->w, &p->h) != 7) continue;
+            p->pos = find_key(pos, POS_KEYS, POSITIONS, POS_MAXIMIZED);
+            if (p->mon < 0 || p->mon >= l->nmon) continue;
+            l->nplace++;
+        }
+    }
 
     int n = get_int(L"HotCorners", L"Count", 0);
     if (n < 0) n = 0;
@@ -115,6 +200,7 @@ void settings_load(Settings *s)
             r->delayMs = (int)(secs * 1000 + 0.5);
         }
         r->countdown = get_int(sec, L"Countdown", 1) != 0;
+        r->warnLow = get_int(sec, L"WarnLow", 0) != 0;
         get_str(sec, L"Monitor", r->monitor, 256);
         get_str(sec, L"MonitorName", r->monitorName, 64);
         get_str(sec, L"Command", r->command, 512);
@@ -161,6 +247,57 @@ BOOL settings_save(const Settings *s)
     ok &= put_int(L"Mouse", L"Index", s->deviceIndex);
     ok &= put(L"Mouse", L"Name", s->deviceName);
     ok &= put_int(L"Mouse", L"ShowMeter", s->showMeter);
+    ok &= put_int(L"Mouse", L"Low", s->lowPercent);
+    ok &= put_int(L"Downloads", L"Button", s->dlButton);
+    ok &= put_int(L"Downloads", L"AllMonitors", s->dlAllMonitors);
+    ok &= put(L"Downloads", L"Icon", s->dlIcon);
+    ok &= put(L"Downloads", L"Folder", s->dlFolder);
+    ok &= put_int(L"Downloads", L"Count", s->dlCount);
+    ok &= put(L"Downloads", L"Sort", SORT_KEYS[s->dlSort]);
+    ok &= put_int(L"Workspace", L"Count", s->appCount);
+    ok &= put_int(L"Workspace", L"NextId", s->nextAppId);
+    for (int i = 0; i < MAX_APPS; i++) {
+        wchar_t sec[32];
+        swprintf_s(sec, 32, L"App%d", i + 1);
+        if (i >= s->appCount) { WritePrivateProfileStringW(sec, NULL, NULL, g_file); continue; }   /* drop it */
+        const App *a = &s->apps[i];
+        ok &= put_int(sec, L"Id", a->id);
+        ok &= put(sec, L"Name", a->name);
+        ok &= put(sec, L"Command", a->command);
+        ok &= put(sec, L"Args", a->args);
+        ok &= put(sec, L"Match", a->match);
+        ok &= put(sec, L"Title", a->title);
+    }
+    ok &= put_int(L"Workspace", L"Setups", s->layoutCount);
+    for (int i = 0; i < MAX_LAYOUTS; i++) {
+        wchar_t sec[32], key[32], t[160];
+        swprintf_s(sec, 32, L"Setup%d", i + 1);
+        WritePrivateProfileStringW(sec, NULL, NULL, g_file);          /* rewritten whole: no stale monitors or places */
+        if (i >= s->layoutCount) continue;
+        const Layout *l = &s->layouts[i];
+        ok &= put(sec, L"Name", l->name);
+        ok &= put_int(sec, L"Monitors", l->nmon);
+        for (int k = 0; k < l->nmon; k++) {
+            const LayoutMon *m = &l->mons[k];
+            swprintf_s(key, 32, L"Mon%dPath", k + 1);
+            ok &= put(sec, key, m->path);
+            swprintf_s(key, 32, L"Mon%dName", k + 1);
+            ok &= put(sec, key, m->name);
+            swprintf_s(key, 32, L"Mon%dRect", k + 1);
+            swprintf_s(t, 160, L"%ld,%ld,%ld,%ld", m->r.left, m->r.top, m->r.right, m->r.bottom);
+            ok &= put(sec, key, t);
+            swprintf_s(key, 32, L"Mon%dWork", k + 1);
+            swprintf_s(t, 160, L"%ld,%ld,%ld,%ld", m->work.left, m->work.top, m->work.right, m->work.bottom);
+            ok &= put(sec, key, t);
+        }
+        ok &= put_int(sec, L"Places", l->nplace);
+        for (int k = 0; k < l->nplace; k++) {
+            const Place *p = &l->places[k];
+            swprintf_s(key, 32, L"Place%d", k + 1);
+            swprintf_s(t, 160, L"%d,%d,%s,%d,%d,%d,%d", p->app, p->mon, POS_KEYS[p->pos], p->x, p->y, p->w, p->h);
+            ok &= put(sec, key, t);
+        }
+    }
     ok &= put_int(L"HotCorners", L"Count", s->ruleCount);
     for (int i = 0; i < MAX_RULES; i++) {
         wchar_t sec[32];
@@ -176,6 +313,7 @@ BOOL settings_save(const Settings *s)
         ok &= put(sec, L"Action", ACTION_KEYS[r->action]);
         ok &= put(sec, L"Delay", d);
         ok &= put_int(sec, L"Countdown", r->countdown);
+        ok &= put_int(sec, L"WarnLow", r->warnLow);
         ok &= put(sec, L"Command", r->command);
     }
     WritePrivateProfileStringW(NULL, NULL, NULL, g_file);   /* flush the cache */
@@ -193,6 +331,6 @@ void rule_describe(const Rule *r, wchar_t *out, int cch)
     wchar_t what[160];
     if (r->action == ACT_RUN) swprintf_s(what, 160, L"Run %s", r->command[0] ? r->command : L"(no command yet)");
     else wcscpy_s(what, 160, action_label(r->action));
-    swprintf_s(out, cch, L"%s of %s: %s after %g s%s", corner_label(r->corner), where, what, r->delayMs / 1000.0,
-               r->countdown ? L"" : L" (no countdown)");
+    swprintf_s(out, cch, L"%s of %s: %s after %g s%s%s", corner_label(r->corner), where, what, r->delayMs / 1000.0,
+               r->countdown ? L"" : L", no countdown", r->countdown && r->warnLow ? L", low-battery warning" : L"");
 }

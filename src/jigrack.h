@@ -14,6 +14,7 @@
 #define WM_TRAY     (WM_APP + 1)     /* tray icon callback */
 #define WM_RESULT   (WM_APP + 2)     /* monitor thread -> tray window: lp = Battery* (HeapAlloc'd) */
 #define WM_DEVICES  (WM_APP + 3)     /* device search -> settings window: lp = DeviceList* (HeapAlloc'd) */
+#define WM_EJECTED  (WM_APP + 4)     /* eject worker -> tray window: lp = EjectResult* (HeapAlloc'd) */
 
 /* ---------------------------------------------------------------- log (main.c) -------------------------------- */
 void trace(const char *fmt, ...);
@@ -32,10 +33,44 @@ typedef struct {
     int action;                 /* ACT_* */
     int delayMs;                /* how long the cursor rests in the corner before the action */
     int countdown;              /* show the on-screen countdown */
+    int warnLow;                /* while dwelling, warn if the mouse battery is low */
     wchar_t monitor[256];       /* WHERE_MONITOR: the monitor's device path (stable across docking) */
     wchar_t monitorName[64];    /* its friendly name, for showing it while it isn't connected */
     wchar_t command[512];       /* ACT_RUN */
 } Rule;
+
+#define MAX_APPS 16
+enum { POS_MAXIMIZED, POS_LEFT, POS_RIGHT, POS_TOP, POS_BOTTOM, POS_LEFT_THIRD, POS_MIDDLE_THIRD, POS_RIGHT_THIRD,
+       POS_CUSTOM, POSITIONS };
+typedef struct {                /* one of the workspace's apps */
+    int id;                     /* stable: what a monitor setup's places refer to */
+    wchar_t name[64];           /* "Google Chrome" */
+    wchar_t command[MAX_PATH + 64]; /* what to start: a program, or shell:AppsFolder\<app ID> for a Store app */
+    wchar_t args[256];
+    wchar_t match[MAX_PATH];    /* the program file its windows belong to (to find it when it's open) */
+    wchar_t title[64];          /* only a window whose title contains this; "" = any */
+} App;
+
+#define MAX_LAYOUTS 8
+#define MAX_LAYOUT_MONS 8
+typedef struct {                /* a monitor of a saved monitor setup */
+    wchar_t path[256];          /* device path */
+    wchar_t name[64];
+    RECT r, work;               /* its place in the desktop, and its work area, as it was saved */
+} LayoutMon;
+typedef struct {                /* where an app goes in a monitor setup */
+    int app;                    /* App.id */
+    int mon;                    /* index into the setup's monitors */
+    int pos;                    /* POS_* */
+    int x, y, w, h;             /* POS_CUSTOM: % of the monitor's work area */
+} Place;
+typedef struct {                /* a saved monitor setup ("2026-11-24-1") and where each app goes on it */
+    wchar_t name[64];
+    int nmon;
+    LayoutMon mons[MAX_LAYOUT_MONS];
+    int nplace;
+    Place places[MAX_APPS];
+} Layout;
 
 typedef struct {
     int mouseType;              /* MOUSE_* */
@@ -43,11 +78,27 @@ typedef struct {
     int deviceIndex;            /* its HID++ device index there: 1..6 on a receiver, 255 wired */
     wchar_t deviceName[64];     /* for display */
     int showMeter;              /* tray shows the battery meter instead of the Jig Rack icon */
+    int lowPercent;             /* "low battery": at or below this the meter is red and hot corners can warn */
     int ruleCount;
     Rule rules[MAX_RULES];
+    int dlButton;               /* Downloads: a button on the taskbar */
+    int dlAllMonitors;          /* on every monitor's taskbar, not just the main one */
+    wchar_t dlIcon[MAX_PATH + 16];  /* "path,index" (a negative index is a resource ID); "" = Windows' Downloads icon */
+    wchar_t dlFolder[MAX_PATH]; /* "" = the Downloads folder */
+    int dlCount;                /* how many of the newest items the panel shows */
+    int dlSort;                 /* DL_SORT_* */
+    int appCount;               /* the workspace */
+    App apps[MAX_APPS];
+    int nextAppId;
+    int layoutCount;
+    Layout layouts[MAX_LAYOUTS];
 } Settings;
+enum { DL_SORT_ADDED, DL_SORT_MODIFIED, DL_SORT_NAME, DL_SORT_KIND, DL_SORTS };
+#define WM_DL_COMMAND (WM_APP + 5)       /* "--downloads <command>" (from the jump list) -> running copy: wp = DL_CMD_* */
+enum { DL_CMD_SORT_ADDED, DL_CMD_SORT_MODIFIED, DL_CMD_SORT_NAME, DL_CMD_SORT_KIND, DL_CMD_OPEN, DL_CMD_SETTINGS, DL_CMDS };
 
 extern Settings g_set;
+BOOL mouse_chosen(const Settings *s);           /* a mouse is picked */
 void settings_defaults(Settings *s);
 void settings_load(Settings *s);
 BOOL settings_save(const Settings *s);
@@ -67,6 +118,9 @@ typedef struct {
     int stale;                  /* mouse not answering now; percent is the last reading */
     wchar_t state[32];
 } Battery;
+
+extern Battery g_battery;                       /* main.c: the last reading of the chosen mouse */
+BOOL mouse_battery_low(void);                   /* chosen, not charging, last reading <= g_set.lowPercent */
 
 typedef struct {
     WORD productId;
@@ -101,6 +155,7 @@ typedef struct {
 } MonitorDesc;
 
 #define TIMER_CORNER 2
+#define TIMER_WORKSPACE 3
 int  monitors_list(MonitorDesc *out, int max);
 void hotcorner_init(HINSTANCE inst, HWND owner);
 void hotcorner_apply(void);                     /* g_set's rules changed, or the monitors did */
@@ -108,9 +163,72 @@ void hotcorner_tick(void);
 void hotcorner_layout_changed(void);
 int  hotcorner_selftest(void);                  /* returns the number of failures */
 void hotcorner_demo_countdown(void);
+void hotcorner_write_previews(const wchar_t *dir);   /* --preview: the countdown overlay, with and without the warning */
 
 /* ---------------------------------------------------------------- tray + settings window -------------------- */
 void tray_refresh(void);                        /* main.c: redraw the tray icon from g_set and the last reading */
 void settings_window_open(HINSTANCE inst);      /* settingswnd.c */
+void tray_notify(BOOL ok, const wchar_t *title, const wchar_t *text);   /* main.c: a notification from the tray icon */
+void settings_window_open_page(HINSTANCE inst, int page);   /* 0 Mouse, 1 Hot Corners, 2 Downloads */
+void settings_window_refresh(void);             /* settings changed elsewhere (the jump list): show them */
 HWND settings_window(void);
 int  settings_window_snapshots(HINSTANCE inst, const wchar_t *dir);   /* --snap-settings: PNG of each tab */
+
+/* ---------------------------------------------------------------- eject media (media.c) ----------------------- */
+#define MAX_DRIVES 26
+typedef struct {
+    DWORD devType, devNum;      /* the disk (STORAGE_DEVICE_NUMBER) */
+    DWORD letterMask;           /* bit 0 = A: */
+    int removable;              /* DRIVE_REMOVABLE (a stick or card) rather than a USB disk */
+    ULONGLONG bytes;            /* total size of its volumes */
+    wchar_t letters[80];        /* "E:" or "E:, F:" */
+    wchar_t volume[64];         /* the volume label, when there's one volume */
+    wchar_t product[100];       /* "Samsung PSSD T7" */
+    wchar_t label[200];         /* menu text */
+} Drive;
+typedef struct { int ok; wchar_t title[64]; wchar_t text[256]; } EjectResult;
+int media_list(Drive *out, int max);                 /* the drives that can be safely removed */
+void media_label(Drive *d);                          /* fills d->label from the rest */
+BOOL media_eject(const Drive *d, wchar_t *why, int cch);
+BOOL media_eject_async(HWND notify, const Drive *list, int n);  /* FALSE if one is already running */
+
+/* ---------------------------------------------------------------- Downloads (downloads.c) --------------------- */
+typedef struct {
+    wchar_t name[MAX_PATH];
+    FILETIME added, modified;   /* created in the folder; last written */
+    ULONGLONG size;
+    BOOL dir;
+} DlItem;
+void downloads_init(HINSTANCE inst);
+void downloads_apply(void);                          /* (re)make the taskbar buttons */
+BOOL downloads_is_message(MSG *m);                   /* keyboard for the open panel */
+void downloads_folder(wchar_t *out, int cch);        /* the folder in use */
+void downloads_icon_location(wchar_t *path, int cch, int *index);
+HICON downloads_load_icon(int size);
+int downloads_collect(const wchar_t *folder, int sort, DlItem *out, int max);
+void downloads_when(FILETIME ft, FILETIME now, wchar_t *out, int cch);
+void downloads_jumplist(void);                       /* the button's right-click menu */
+void downloads_command(int cmd);                     /* DL_CMD_*, in the running copy */
+int downloads_command_id(const wchar_t *name);       /* "sort-name" -> DL_CMD_SORT_NAME; -1 if unknown */
+extern const wchar_t *DL_SORT_LABELS[DL_SORTS];
+
+/* ---------------------------------------------------------------- Workspace (workspace.c) --------------------- */
+extern const wchar_t *POSITION_LABELS[POSITIONS];
+void workspace_launch(HWND owner);                   /* start the apps and place their windows */
+void workspace_tick(void);                           /* TIMER_WORKSPACE */
+void workspace_target(const RECT *work, int pos, int x, int y, int w, int h, RECT *out);
+int  workspace_snap(const RECT *mon, POINT p);       /* the position a drop at p in a monitor snaps to */
+int  workspace_current_monitors(LayoutMon *out, int max);
+int  workspace_find_layout(const LayoutMon *cur, int n);   /* the saved setup with these monitors; -1 */
+int  workspace_current_layout(void);                 /* the saved setup matching the monitors now; -1 */
+void workspace_capture_layout(Layout *l);            /* the monitors now, named "2026-11-24-1" */
+Place *workspace_place_of(Layout *l, int appId);     /* NULL if the app has no place in it */
+void workspace_set_place(Layout *l, const Place *p);
+void workspace_unplace(Layout *l, int appId);
+void workspace_remove_app(int index);                /* from the list and from every setup */
+HWND workspace_find(const App *a);                   /* the app's open window, or NULL */
+int  workspace_open_windows(HWND *out, int max);     /* open app windows, for "add from an open window" */
+void workspace_app_from_window(HWND w, App *a);
+void workspace_app_from_file(const wchar_t *path, App *a);
+BOOL workspace_place_from_window(HWND w, const Layout *l, Place *p);   /* where it is now, on l's monitors */
+HBITMAP workspace_app_icon(const App *a, int size);  /* 32-bit premultiplied, or NULL */

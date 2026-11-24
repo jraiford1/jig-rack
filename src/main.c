@@ -2,6 +2,9 @@
  * Jig Rack -- a rack of small, purpose-built Windows tools ("jigs") in one notification-area app.
  *   - Mouse battery jig (mouse.c): battery level and charging state of a Logitech wireless mouse, without G HUB.
  *   - Hot corner jig (hotcorner.c): rest the cursor in a screen corner to lock the PC, sleep, show the desktop...
+ *   - Eject media jig (media.c): safely remove a USB drive or memory card from the tray menu.
+ *   - Downloads jig (downloads.c): a Downloads button on each monitor's taskbar with the newest downloads.
+ *   - Workspace jig (workspace.c): one click starts the standard apps and puts their windows in place.
  * Right-click the tray icon for Settings (settingswnd.c), saved in %APPDATA%\Jig Rack\settings.ini (settings.c).
  *
  * Copyright (C) 2026 Jon Raiford
@@ -13,14 +16,18 @@
  */
 #include "jigrack.h"
 #include "resource.h"
+#include "version.h"
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "gdi32.lib")
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "comctl32.lib")
 
-#define ID_SETTINGS 1
-#define ID_EXIT     2
+#define ID_SETTINGS  1
+#define ID_EXIT      2
+#define ID_EJECT_ALL 3
+#define ID_WORKSPACE 4
+#define ID_EJECT     100                           /* + the drive's index in the menu's list */
 
 /* ---------------------------------------------------------------- log ----------------------------------------- */
 /* What the app saw (settings, receiver, device, events, state changes, corners, actions), next to the exe.
@@ -55,16 +62,16 @@ static HINSTANCE g_inst;
 static NOTIFYICONDATAW g_nid;
 static HICON g_icon;
 static UINT g_taskbarCreated;
-static Battery g_shown = { 0, 0, 0, 0, 0, L"reading\x2026" };   /* the last reading from the monitor thread */
+Battery g_battery = { 0, 0, 0, 0, 0, L"reading\x2026" };   /* the last reading from the monitor thread */
 
 /* The battery meter when a mouse is chosen and "show the meter" is on; the Jig Rack icon otherwise. */
 void tray_refresh(void)
 {
     if (!g_nid.cbSize) return;
-    BOOL chosen = g_set.mouseType == MOUSE_LOGITECH && g_set.productId;
-    HICON icon = chosen && g_set.showMeter ? icon_meter(&g_shown) : icon_app(0);
+    BOOL chosen = mouse_chosen(&g_set);
+    HICON icon = chosen && g_set.showMeter ? icon_meter(&g_battery) : icon_app(0);
     wchar_t tip[128];
-    const Battery *b = &g_shown;
+    const Battery *b = &g_battery;
     if (!chosen) wcscpy_s(tip, 128, APP_NAME);
     else if (b->ok && b->stale)
         swprintf_s(tip, 128, L"%s\nMouse battery %s%d%% (last reading; %s)", APP_NAME, b->approx ? L"~" : L"", b->percent, b->state);
@@ -94,11 +101,32 @@ static void add_tray(HWND hwnd)
     tray_refresh();
 }
 
+/* A notification from the tray icon (an eject's result, apps that didn't open). */
+void tray_notify(BOOL ok, const wchar_t *title, const wchar_t *text)
+{
+    if (!g_nid.cbSize) return;
+    NOTIFYICONDATAW n = g_nid;
+    n.uFlags = NIF_INFO;
+    n.dwInfoFlags = ok ? NIIF_INFO : NIIF_WARNING;
+    wcscpy_s(n.szInfoTitle, ARRAYSIZE(n.szInfoTitle), title);
+    wcsncpy_s(n.szInfo, ARRAYSIZE(n.szInfo), text, _TRUNCATE);
+    Shell_NotifyIconW(NIM_MODIFY, &n);
+}
+
 static void tray_menu(HWND hwnd)
 {
     POINT pt;
     GetCursorPos(&pt);
+    static Drive drives[MAX_DRIVES];
+    int nd = media_list(drives, MAX_DRIVES);
     HMENU m = CreatePopupMenu();
+    if (g_set.appCount) {
+        AppendMenuW(m, MF_STRING, ID_WORKSPACE, L"&Launch workspace");
+        AppendMenuW(m, MF_SEPARATOR, 0, NULL);
+    }                                               /* the drives right in the menu: one click to eject */
+    for (int i = 0; i < nd; i++) AppendMenuW(m, MF_STRING, ID_EJECT + i, drives[i].label);
+    if (nd > 1) AppendMenuW(m, MF_STRING, ID_EJECT_ALL, L"Eject &all");
+    if (nd) AppendMenuW(m, MF_SEPARATOR, 0, NULL);
     AppendMenuW(m, MF_STRING, ID_SETTINGS, L"&Settings\x2026");
     AppendMenuW(m, MF_SEPARATOR, 0, NULL);
     AppendMenuW(m, MF_STRING, ID_EXIT, L"E&xit");
@@ -106,25 +134,48 @@ static void tray_menu(HWND hwnd)
     SetForegroundWindow(hwnd);
     int cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, NULL);
     DestroyMenu(m);
-    if (cmd == ID_SETTINGS) settings_window_open(g_inst);
+    if (cmd == ID_WORKSPACE) workspace_launch(hwnd);
+    else if (cmd == ID_SETTINGS) settings_window_open(g_inst);
     else if (cmd == ID_EXIT) DestroyWindow(hwnd);
+    else if (cmd == ID_EJECT_ALL || (cmd >= ID_EJECT && cmd < ID_EJECT + nd)) {
+        const Drive *list = cmd == ID_EJECT_ALL ? drives : &drives[cmd - ID_EJECT];
+        int n = cmd == ID_EJECT_ALL ? nd : 1;
+        for (int i = 0; i < n; i++) trace("eject %ls (%ls)", list[i].letters, list[i].product);
+        if (!media_eject_async(hwnd, list, n)) tray_notify(FALSE, L"Still ejecting", L"Wait for the last eject to finish.");
+    }
 }
 
 static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
-    if (msg == g_taskbarCreated && g_taskbarCreated) { add_tray(hwnd); return 0; }  /* Explorer restarted */
+    if (msg == g_taskbarCreated && g_taskbarCreated) {      /* Explorer restarted */
+        add_tray(hwnd);
+        downloads_apply();
+        return 0;
+    }
     switch (msg) {
     case WM_CREATE:
         add_tray(hwnd);
         hotcorner_init(g_inst, hwnd);
         hotcorner_apply();
         mouse_start(hwnd);
+        downloads_init(g_inst);
+        downloads_apply();
         return 0;
     case WM_RESULT: {
         Battery *b = (Battery *)lp;
-        g_shown = *b;
+        g_battery = *b;
         HeapFree(GetProcessHeap(), 0, b);
         tray_refresh();
+        return 0;
+    }
+    case WM_DL_COMMAND:                                     /* from a jump list entry, via a second copy */
+        downloads_command((int)wp);
+        return 0;
+    case WM_EJECTED: {
+        EjectResult *r = (EjectResult *)lp;
+        trace("eject: %ls - %ls", r->title, r->text);
+        tray_notify(r->ok, r->title, r->text);
+        HeapFree(GetProcessHeap(), 0, r);
         return 0;
     }
     case WM_TRAY:
@@ -135,9 +186,11 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_TIMER:
         if (wp == TIMER_CORNER) hotcorner_tick();
+        else if (wp == TIMER_WORKSPACE) workspace_tick();
         return 0;
     case WM_DISPLAYCHANGE:                                  /* monitor added, removed or rearranged */
         hotcorner_layout_changed();
+        downloads_apply();
         if (settings_window()) PostMessageW(settings_window(), WM_DISPLAYCHANGE, wp, lp);
         break;
     case WM_DESTROY:
@@ -191,6 +244,26 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show_cmd)
         CloseHandle(g_log);
         return 0;
     }
+    if (argv && (v = arg_after(argc, argv, L"--media")) != NULL) {
+        open_log(v);
+        Drive d[MAX_DRIVES];
+        int n = media_list(d, MAX_DRIVES);
+        trace("found %d removable drive(s)", n);
+        for (int i = 0; i < n; i++)
+            trace("  disk %lu: %ls  [%ls]%s", d[i].devNum, d[i].label, d[i].letters, d[i].removable ? " removable" : "");
+        CloseHandle(g_log);
+        return 0;
+    }
+    if (argv && (v = arg_after(argc, argv, L"--downloads")) != NULL) {   /* a Downloads jump list entry */
+        int c = downloads_command_id(v);
+        HWND w = FindWindowW(L"JigRackTrayWindow", NULL);
+        if (c < 0 || !w) return 1;
+        DWORD pid = 0;
+        GetWindowThreadProcessId(w, &pid);
+        AllowSetForegroundWindow(pid);                      /* so it can bring up Explorer or Settings */
+        PostMessageW(w, WM_DL_COMMAND, (WPARAM)c, 0);
+        return 0;
+    }
     if (argv && has_arg(argc, argv, L"--exit")) {          /* close the running copy cleanly (for upgrades) */
         HWND w = FindWindowW(L"JigRackTrayWindow", NULL);
         if (!w) return 0;
@@ -209,7 +282,11 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show_cmd)
         hotcorner_demo_countdown();
         return 0;
     }
-    if (argv && (v = arg_after(argc, argv, L"--preview")) != NULL) { icons_write_previews(v); return 0; }
+    if (argv && (v = arg_after(argc, argv, L"--preview")) != NULL) {
+        icons_write_previews(v);
+        hotcorner_write_previews(v);
+        return 0;
+    }
     if (argv && (v = arg_after(argc, argv, L"--write-ico")) != NULL) return icons_write_ico(v) ? 0 : 1;
     if (argv && (v = arg_after(argc, argv, L"--snap-settings")) != NULL) {
         wchar_t log[MAX_PATH];
@@ -229,7 +306,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show_cmd)
     logpath[len] = 0;
     wcscat_s(logpath, MAX_PATH, L"jigrack.log");
     open_log(logpath);
-    trace("Jig Rack started");
+    trace("Jig Rack " JR_VERSION_STR " started");
+    OleInitialize(NULL);                                    /* the Downloads panel: drag and drop, shell items */
     settings_load(&g_set);
     g_taskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
     WNDCLASSW wc = {0};
@@ -246,6 +324,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show_cmd)
     while (GetMessageW(&m, NULL, 0, 0) > 0) {
         HWND dlg = settings_window();
         if (dlg && IsDialogMessageW(dlg, &m)) continue;
+        if (downloads_is_message(&m)) continue;
         TranslateMessage(&m);
         DispatchMessageW(&m);
     }

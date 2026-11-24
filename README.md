@@ -24,13 +24,16 @@ small mouse above a horizontal battery with the percentage in it:
 | Colour | Meaning |
 |---|---|
 | Blue | Charging |
-| Red | 20% or less |
+| Red | Low: at or below the **Low battery** level (20% unless you change it) |
 | Yellow | 50% or less |
 | Green | Above 50% |
 | Grey `?` | No reading yet (receiver unplugged, mouse asleep or off) |
 
 Hover for the details (for example "Mouse battery 63% - charging"). With no mouse chosen, or the meter turned off,
 the tray shows the Jig Rack icon instead.
+
+**Low battery at or below** (on the same tab) sets what "low" means: the meter turns red there, and hot corner
+countdowns can warn you (see below).
 
 A monitor thread keeps the chosen mouse's receiver open, so the mouse's own battery events show up at once; a
 backstop check (one 20-byte request and its reply) runs every 5 s. If the receiver is unplugged it retries every
@@ -40,8 +43,8 @@ slot on it, so it's found again even while it's asleep.
 ### Hot corners
 
 Rest the cursor in a screen corner and something happens: lock the PC, sleep, turn off the screens, show the
-desktop, open Task View, or run a command. Out of the box, resting 5 s in the **top-right of the workspace** locks
-the PC.
+desktop, open Task View, or run a command. There are none until you add one; a new rule starts as resting 5 s in
+the **top-right of the workspace** to lock the PC.
 
 Set it up in **Settings → Hot Corners**: a list of rules, with **+** and **-** to add and remove them. Each rule
 picks:
@@ -57,6 +60,10 @@ picks:
 - **Delay**: how long the cursor has to rest there, in seconds (decimals are fine).
 - **Show the countdown**: a white, black-outlined countdown next to the corner, from 0.5 s in. It's a layered,
   click-through window that never takes focus.
+- **Warn if mouse battery is low** (part of the countdown, so only with it on): a red line with the countdown says
+  "Mouse battery 12% — charge it" when the chosen mouse is at or below the Mouse tab's low level and isn't
+  charging (the last reading counts, even while the mouse sleeps). Handy on the corner you use to lock the PC
+  before walking away.
 
 Two rules can share a corner (say, show the desktop after 1 s and lock after 5 s); each fires at its own time.
 
@@ -66,15 +73,88 @@ Two rules can share a corner (say, show the desktop after 1 s and lock after 5 s
 - A click cancels (so a window's close button in that corner still works). After an action or a cancel, the cursor
   has to leave the corner before that rule can fire again, so coming back from the lock screen doesn't lock again.
 
+### Eject media
+
+Safely remove a USB drive, an external USB disk or a memory card without hunting for the "Safely Remove Hardware"
+icon. Right-click the tray icon: each drive that can be removed is right there in the menu, for example
+**Eject E: BACKUP — Samsung PSSD T7 (1.0 TB)**, so it's one click, with **Eject all** when there's more than one.
+With nothing to eject the menu is just Settings and Exit. A notification says when it's safe to unplug, or why it couldn't be ejected (usually a file still open on it).
+
+- A disk with several drive letters is one entry, since ejecting it removes them all. The Windows drive and
+  internal disks are never listed, and nor is an empty card reader.
+- Ejecting asks Windows to remove the device, just as "Safely Remove Hardware" does, so Windows makes sure nothing
+  has a file open and flushes the drive first. A card in a built-in reader is dismounted and its media ejected,
+  leaving the reader. It runs in the background and retries for a moment if a file was only just closed.
+- The list is read each time the menu opens; there's nothing running in between.
+
+### Downloads
+
+Like the Downloads stack in a Mac's Dock: a Downloads button on the taskbar of every monitor (Windows' own
+Downloads icon unless you pick another, with no label, so it takes about as much room as a pinned icon).
+
+- **Click it** and a panel pops up above it with the newest items in the folder, each with its icon, size and how
+  long ago it arrived ("5 min ago", "Yesterday", "Nov 3"). Click one to open it, drag it out to copy or move it
+  anywhere (Explorer, the desktop, an email), or right-click it for Explorer's full menu (Open with, Send to, Copy,
+  Delete, Properties and the rest; Shift for the extra items) with **Show in folder** on top. Click the button again,
+  press Esc or click anywhere else to close it.
+- **Right-click it** for the stack's menu: **Sort by** Name, Kind, Date Added or Date Modified (the current one is
+  ticked), **Open Downloads** and **Downloads settings…**, above Windows' own "Close window".
+- Files still downloading (`.crdownload`, `.part` and the like), hidden files and `desktop.ini` are left out.
+
+Set it up in **Settings → Downloads**: turn the button on, **On all monitors** (otherwise only the main one), the
+icon (**Change icon…** picks one from any `.ico`, `.exe` or `.dll`; **Default** goes back to Windows' Downloads
+icon), the folder (any folder, not just Downloads), how many of the newest items to show (20 unless you change it)
+and the sort order.
+
+How it works: Windows puts a window's taskbar button on the taskbar of the monitor the window is on, so Jig Rack
+keeps one tiny, invisible, click-through window on each monitor, which becomes the panel when its button is
+clicked. They have their own taskbar identity (AppUserModelID), so they never group with anything else, can't be
+pinned, and have their own right-click menu (a jump list, whose entries run `JigRack.exe --downloads <command>`,
+which passes the command to the running copy). The folder is read only when the panel opens.
+
+### Workspace
+
+One click starts your standard apps and puts each window where you want it: right-click the tray icon and choose
+**Launch workspace**. An app that's already open isn't started again; its window is just moved into place.
+
+Where the apps go depends on the monitors you have connected, so it's kept per **monitor setup**: how many
+monitors, their sizes and where they sit (turning one to portrait makes a different setup). Launch workspace uses
+the saved setup that matches the monitors connected now; if none does, it starts the apps without placing them
+and says so.
+
+Set it up in **Settings → Workspace**:
+
+- **Apps** (left), started in this order: **+** adds one, from a window that's open now (its program, or the app
+  ID for a Store app such as the new Outlook or Teams; it's also placed where that window is) or from a program
+  file; **-** removes it; **Up** and **Down** reorder. Below: the selected app's **Program**, **Arguments** and
+  **Title contains** (to pick one of its windows, for example one Chrome window of several).
+- **Monitor setup** (right): **Add current** saves the monitors you have now, named with the date and a number
+  (`2026-11-24-1`; change it under **Name**). **Remove** deletes the chosen one. The one matching your monitors
+  is marked "(these monitors)".
+- The picture shows the chosen setup's monitors, to scale, with each placed app's icon in the middle of where it
+  goes. **Drag an app** from the list onto a monitor and it snaps: on a landscape monitor the top band gives the
+  left half, maximized or the right half, and lower down the left, middle or right third; on a portrait monitor,
+  the top half, maximized or the bottom half. Drag a placed app to move it. **Right-click** it for every
+  position, **Where its window is now** (its exact place, kept in % of the monitor), or **Remove from this
+  setup**. Apps not placed in a setup are marked "(not placed)" and are just started.
+
+Each started app's window is waited for (up to a minute) and placed as soon as it shows, then once more a moment
+later, after the app has restored its own last position and adapted to the monitor's scaling. The window's
+visible edge lines up with the target (Windows' invisible resize borders are allowed for). A window of an app
+running as administrator can't be moved by Jig Rack; the log says so. If an app doesn't open in time, a
+notification says which.
+
 ## Tray menu and settings
 
 The tray icon is the Jig Rack icon (a workshop pegboard with a wrench and a screwdriver), or the mouse battery
-meter if you've chosen to show it. Right-click it for **Settings…** and **Exit** (double-clicking the icon opens Settings too).
+meter if you've chosen to show it. Right-click it for **Launch workspace** (once there are apps on the Workspace tab), **Eject** (one item per
+removable drive), **Settings…** and **Exit** (double-clicking the icon opens Settings too).
 
-**Settings** opens a window with a tab for each jig. Every change is saved and takes effect at once; there's
+**Settings** opens a window with a tab for each jig; its bottom-left corner shows the version (for example
+"Jig Rack 1.2.0"). Every change is saved and takes effect at once; there's
 nothing to apply and no restart. The settings live in `%APPDATA%\Jig Rack\settings.ini` (UTF-16, written by the
-window). With no settings file, no mouse is chosen and the hot corner is the top-right of the workspace, locking
-after 5 s.
+window). With no settings file nothing is set up: no mouse is chosen, there are no hot corners, no Downloads button
+and no workspace apps.
 
 Only one copy runs at a time. If Explorer restarts, the icon comes back on its own.
 
@@ -99,6 +179,10 @@ builds again.
 | `src\settingswnd.c` | The Settings window |
 | `src\mouse.c` | The mouse battery jig (HID++) |
 | `src\hotcorner.c` | The hot corner jig, its countdown and its self-test |
+| `src\media.c` | The eject media jig |
+| `src\downloads.c` | The Downloads jig: the taskbar buttons, the panel and the right-click menu |
+| `src\workspace.c` | The Workspace jig: starting the apps and placing their windows |
+| `src\version.h` | The version (also in `src\jigrack.manifest`); a release zip is named `JigRack-<version>.zip` |
 | `src\icons.c` | The tray icons (GDI+), previews and the `.ico` |
 
 ## Install
@@ -118,11 +202,13 @@ ran) `HKCU\Software\JigRack`.
 
 | Command | What it does |
 |---|---|
-| `JigRack.exe --selftest <log file>` | Runs the hot corner rules on scripted cursor timelines against your real monitor layout, and a settings-file round trip, and writes the results to the log. Never acts. Expect `0 failure(s)`. |
-| `JigRack.exe --preview <folder>` | Writes the tray icons as PNGs and exits. |
+| `JigRack.exe --selftest <log file>` | Runs the hot corner rules on scripted cursor timelines against your real monitor layout, a settings-file round trip, the eject menu's text, the Downloads panel's choice and order of items (in a scratch folder) and where each Workspace position puts a window, where a drop snaps and which saved monitor setup matches, and writes the results to the log. Never acts. Expect `0 failure(s)`. |
+| `JigRack.exe --preview <folder>` | Writes the tray icons and the countdown overlay (with and without the battery warning) as PNGs and exits. |
 | `JigRack.exe --demo-countdown` | Shows the countdown at the first rule's corner, without any action. |
 | `JigRack.exe --snap-settings <folder>` | Opens the Settings window off-screen and saves each tab as a PNG. |
 | `JigRack.exe --devices <log file>` | Lists the Logitech mice found (receiver, slot, name, type, battery) in the log. |
+| `JigRack.exe --media <log file>` | Lists the drives the tray menu would offer to eject, in the log. Never ejects. |
+| `JigRack.exe --downloads <command>` | What the Downloads button's right-click menu runs: `sort-name`, `sort-kind`, `sort-added`, `sort-modified`, `open` or `settings`, passed to the running copy. |
 | `JigRack.exe --exit` | Closes the running copy cleanly. |
 | `JigRack.exe --write-ico <file>` | Writes the Jig Rack icon as a multi-size `.ico`. |
 | `--settings <file>` | With any of the above (or none): use that settings file instead of the one in `%APPDATA%`. |

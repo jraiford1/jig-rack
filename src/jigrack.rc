@@ -2,6 +2,7 @@
 #include <winuser.h>
 #include <commctrl.h>
 #include "resource.h"
+#include "version.h"
 
 #ifndef NO_ICON
 IDI_APP ICON "jigrack.ico"
@@ -10,8 +11,8 @@ IDI_APP ICON "jigrack.ico"
 CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "jigrack.manifest"
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 1,1,0,0
- PRODUCTVERSION 1,1,0,0
+ FILEVERSION JR_VERSION_NUM
+ PRODUCTVERSION JR_VERSION_NUM
  FILEFLAGSMASK 0x3fL
  FILEFLAGS 0x0L
  FILEOS VOS_NT_WINDOWS32
@@ -24,8 +25,8 @@ BEGIN
         BEGIN
             VALUE "FileDescription", "Jig Rack"
             VALUE "ProductName", "Jig Rack"
-            VALUE "FileVersion", "1.1.0.0"
-            VALUE "ProductVersion", "1.1.0.0"
+            VALUE "FileVersion", JR_VERSION_RC
+            VALUE "ProductVersion", JR_VERSION_RC
             VALUE "OriginalFilename", "JigRack.exe"
             VALUE "InternalName", "JigRack"
             VALUE "LegalCopyright", "Copyright (C) 2026 Jon Raiford. GPL-3.0-or-later."
@@ -37,14 +38,15 @@ BEGIN
     END
 END
 
-IDD_SETTINGS DIALOGEX 0, 0, 320, 262
+IDD_SETTINGS DIALOGEX 0, 0, 420, 316
 STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX
 EXSTYLE WS_EX_CONTROLPARENT | WS_EX_APPWINDOW
 CAPTION "Jig Rack Settings"
 FONT 9, "Segoe UI", 400, 0, 0x1
 BEGIN
-    CONTROL         "", IDC_TABS, "SysTabControl32", WS_TABSTOP, 7, 7, 306, 228
-    DEFPUSHBUTTON   "Close", IDOK, 263, 241, 50, 14
+    CONTROL         "", IDC_TABS, "SysTabControl32", WS_TABSTOP, 7, 7, 406, 282
+    LTEXT           "", IDC_VERSION, 9, 298, 200, 8
+    DEFPUSHBUTTON   "Close", IDOK, 363, 295, 50, 14
 END
 
 IDD_PAGE_MOUSE DIALOGEX 0, 0, 296, 208
@@ -58,7 +60,10 @@ BEGIN
     LISTBOX         IDC_MOUSE_LIST, 7, 41, 282, 92, LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_BORDER | WS_TABSTOP
     LTEXT           "", IDC_MOUSE_STATUS, 7, 139, 224, 18
     PUSHBUTTON      "&Refresh", IDC_MOUSE_REFRESH, 239, 138, 50, 14
-    AUTOCHECKBOX    "&Show the mouse battery meter in place of the Jig Rack icon", IDC_MOUSE_METER, 7, 166, 282, 10
+    AUTOCHECKBOX    "&Show the mouse battery meter in place of the Jig Rack icon", IDC_MOUSE_METER, 7, 164, 282, 10
+    LTEXT           "&Low battery at or below:", IDC_MOUSE_LOWLABEL, 7, 185, 84, 8
+    EDITTEXT        IDC_MOUSE_LOW, 92, 183, 24, 12, ES_NUMBER
+    LTEXT           "%  (the meter turns red; hot corners can warn)", IDC_MOUSE_LOWNOTE, 120, 185, 170, 8
 END
 
 IDD_PAGE_CORNERS DIALOGEX 0, 0, 296, 208
@@ -67,19 +72,70 @@ EXSTYLE WS_EX_CONTROLPARENT
 FONT 9, "Segoe UI", 400, 0, 0x1
 BEGIN
     LTEXT           "&Rules:", -1, 7, 7, 100, 8
-    LISTBOX         IDC_RULES, 7, 18, 248, 74, LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_HSCROLL | WS_BORDER | WS_TABSTOP
+    LISTBOX         IDC_RULES, 7, 18, 248, 62, LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_HSCROLL | WS_BORDER | WS_TABSTOP
     PUSHBUTTON      "+", IDC_RULE_ADD, 261, 18, 28, 14
     PUSHBUTTON      "-", IDC_RULE_DEL, 261, 35, 28, 14
-    GROUPBOX        "Selected rule", IDC_RULE_GROUP, 7, 97, 282, 105
-    LTEXT           "&Corner:", -1, 15, 113, 52, 8
-    COMBOBOX        IDC_RULE_CORNER, 72, 111, 110, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT           "&Where:", -1, 15, 131, 52, 8
-    COMBOBOX        IDC_RULE_WHERE, 72, 129, 209, 120, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT           "&Action:", -1, 15, 149, 52, 8
-    COMBOBOX        IDC_RULE_ACTION, 72, 147, 110, 100, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
-    LTEXT           "Co&mmand:", IDC_RULE_CMDLABEL, 15, 167, 52, 8
-    EDITTEXT        IDC_RULE_COMMAND, 72, 165, 209, 12, ES_AUTOHSCROLL
-    LTEXT           "&Delay (seconds):", -1, 15, 185, 56, 8
-    EDITTEXT        IDC_RULE_DELAY, 72, 183, 36, 12, ES_AUTOHSCROLL
-    AUTOCHECKBOX    "Show the c&ountdown", IDC_RULE_COUNTDOWN, 122, 184, 120, 10
+    GROUPBOX        "Selected rule", IDC_RULE_GROUP, 7, 84, 282, 120
+    LTEXT           "&Corner:", -1, 15, 100, 52, 8
+    COMBOBOX        IDC_RULE_CORNER, 72, 98, 110, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "&Where:", -1, 15, 118, 52, 8
+    COMBOBOX        IDC_RULE_WHERE, 72, 116, 209, 120, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "&Action:", -1, 15, 136, 52, 8
+    COMBOBOX        IDC_RULE_ACTION, 72, 134, 110, 100, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Co&mmand:", IDC_RULE_CMDLABEL, 15, 154, 52, 8
+    EDITTEXT        IDC_RULE_COMMAND, 72, 152, 209, 12, ES_AUTOHSCROLL
+    LTEXT           "&Delay (seconds):", -1, 15, 172, 56, 8
+    EDITTEXT        IDC_RULE_DELAY, 72, 170, 36, 12, ES_AUTOHSCROLL
+    AUTOCHECKBOX    "Show the c&ountdown", IDC_RULE_COUNTDOWN, 122, 171, 120, 10
+    AUTOCHECKBOX    "Warn if mouse &battery is low", IDC_RULE_WARN, 132, 185, 140, 10
+END
+
+IDD_PAGE_DOWNLOADS DIALOGEX 0, 0, 296, 208
+STYLE DS_SETFONT | DS_CONTROL | WS_CHILD
+EXSTYLE WS_EX_CONTROLPARENT
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    AUTOCHECKBOX    "Show a &Downloads button on the taskbar", IDC_DL_BUTTON, 7, 8, 282, 10
+    AUTOCHECKBOX    "On all &monitors (otherwise only the main one)", IDC_DL_ALLMON, 19, 22, 270, 10
+    LTEXT           "Icon:", IDC_DL_ICONLABEL, 7, 46, 40, 8
+    CONTROL         "", IDC_DL_ICON, "Static", SS_ICON | SS_CENTERIMAGE, 52, 39, 20, 20
+    PUSHBUTTON      "C&hange icon...", IDC_DL_CHANGEICON, 80, 43, 64, 14
+    PUSHBUTTON      "D&efault", IDC_DL_DEFICON, 148, 43, 46, 14
+    LTEXT           "&Folder:", IDC_DL_FOLDERLABEL, 7, 70, 40, 8
+    EDITTEXT        IDC_DL_FOLDER, 52, 68, 237, 12, ES_AUTOHSCROLL | ES_READONLY
+    PUSHBUTTON      "&Browse...", IDC_DL_BROWSE, 52, 84, 50, 14
+    PUSHBUTTON      "Downloads &folder", IDC_DL_DEFFOLDER, 106, 84, 70, 14
+    LTEXT           "&Show the", IDC_DL_COUNTLABEL, 7, 110, 40, 8
+    EDITTEXT        IDC_DL_COUNT, 52, 108, 24, 12, ES_NUMBER
+    LTEXT           "newest items, sorted by", IDC_DL_COUNTNOTE, 80, 110, 80, 8
+    COMBOBOX        IDC_DL_SORT, 162, 108, 90, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Click the button for the newest items: click one to open it, or drag it out. Right-click the button to change the sort order or open the folder.", IDC_DL_NOTE, 7, 132, 282, 26
+END
+
+IDD_PAGE_WORKSPACE DIALOGEX 0, 0, 400, 260
+STYLE DS_SETFONT | DS_CONTROL | WS_CHILD
+EXSTYLE WS_EX_CONTROLPARENT
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "&Apps:", -1, 7, 9, 100, 8
+    LISTBOX         IDC_WS_APPS, 7, 20, 120, 160, LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_BORDER | WS_TABSTOP
+    PUSHBUTTON      "+", IDC_WS_ADD, 7, 184, 24, 14
+    PUSHBUTTON      "-", IDC_WS_DEL, 34, 184, 24, 14
+    PUSHBUTTON      "Up", IDC_WS_UP, 61, 184, 32, 14
+    PUSHBUTTON      "Down", IDC_WS_DOWN, 96, 184, 31, 14
+    LTEXT           "Monitor &setup:", -1, 136, 9, 52, 8
+    COMBOBOX        IDC_WS_LAYOUT, 190, 7, 112, 100, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON      "Add &current", IDC_WS_ADDLAYOUT, 306, 6, 48, 14
+    PUSHBUTTON      "&Remove", IDC_WS_DELLAYOUT, 357, 6, 36, 14
+    LTEXT           "&Name:", IDC_WS_L4, 136, 25, 52, 8
+    EDITTEXT        IDC_WS_LAYOUTNAME, 190, 23, 112, 12, ES_AUTOHSCROLL
+    CONTROL         "", IDC_WS_CANVAS, "JigRackWsCanvas", WS_TABSTOP | WS_BORDER, 136, 40, 257, 140
+    LTEXT           "Drag an app from the list onto a monitor; right-click it there for more choices.", IDC_WS_NOTE, 136, 186, 257, 8
+    LTEXT           "&Program:", IDC_WS_L1, 7, 210, 50, 8
+    EDITTEXT        IDC_WS_PROGRAM, 60, 208, 290, 12, ES_AUTOHSCROLL
+    PUSHBUTTON      "&Browse...", IDC_WS_BROWSE, 354, 207, 39, 14
+    LTEXT           "Ar&guments:", IDC_WS_L2, 7, 226, 50, 8
+    EDITTEXT        IDC_WS_ARGS, 60, 224, 333, 12, ES_AUTOHSCROLL
+    LTEXT           "&Title contains:", IDC_WS_L3, 7, 242, 50, 8
+    EDITTEXT        IDC_WS_TITLE, 60, 240, 333, 12, ES_AUTOHSCROLL
 END
