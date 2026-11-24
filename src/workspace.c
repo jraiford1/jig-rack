@@ -330,6 +330,25 @@ typedef struct {
     HWND *list; int n, max;     /* workspace_open_windows */
 } FindCtx;
 
+/* A Store app's ID ("MSTeams_8wekyb3d8bbwe!MSTeams") from its command, or NULL for a plain program. */
+static const wchar_t *store_id(const App *a)
+{
+    return _wcsnicmp(a->command, L"shell:AppsFolder\\", 17) ? NULL : a->command + 17;
+}
+
+/* Does the process belong to the Store app with this ID? (Its program's path has the version in it, which changes
+   with every update, so the ID is what identifies it.) */
+static BOOL process_is_store_app(DWORD pid, const wchar_t *id)
+{
+    HANDLE p = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!p) return FALSE;
+    wchar_t aumid[APPLICATION_USER_MODEL_ID_MAX_LENGTH];
+    UINT32 len = ARRAYSIZE(aumid);
+    BOOL same = GetApplicationUserModelId(p, &len, aumid) == ERROR_SUCCESS && !_wcsicmp(aumid, id);
+    CloseHandle(p);
+    return same;
+}
+
 static BOOL CALLBACK find_enum(HWND w, LPARAM lp)
 {
     FindCtx *c = (FindCtx *)lp;
@@ -339,7 +358,9 @@ static BOOL CALLBACK find_enum(HWND w, LPARAM lp)
     wchar_t path[MAX_PATH] = L"";
     GetWindowThreadProcessId(w, &pid);
     process_path(pid, path, MAX_PATH);
-    BOOL ours = (c->a->match[0] && !_wcsicmp(path, c->a->match)) || (c->root && c->tree && descends(c->tree, pid, c->root));
+    const wchar_t *id = store_id(c->a);
+    BOOL ours = id ? process_is_store_app(pid, id)
+                   : (c->a->match[0] && !_wcsicmp(path, c->a->match)) || (c->root && c->tree && descends(c->tree, pid, c->root));
     if (!ours) return TRUE;
     if (!main_window(w)) {
         if (!c->prompt) c->prompt = w;
@@ -372,7 +393,20 @@ static HWND find_window(const App *a, DWORD root, HWND *prompt, wchar_t *path)
 
 HWND workspace_find(const App *a)
 {
-    return a->match[0] ? find_window(a, 0, NULL, NULL) : NULL;
+    return a->match[0] || store_id(a) ? find_window(a, 0, NULL, NULL) : NULL;
+}
+
+/* "Microsoft Teams" (TeamsWebView, ms-teams.exe): which window it picked, for the log. */
+static void describe(HWND w, wchar_t *out, int cch)
+{
+    wchar_t title[80], cls[64], path[MAX_PATH] = L"";
+    DWORD pid = 0;
+    GetWindowTextW(w, title, 80);
+    GetClassNameW(w, cls, 64);
+    GetWindowThreadProcessId(w, &pid);
+    process_path(pid, path, MAX_PATH);
+    const wchar_t *exe = wcsrchr(path, L'\\');
+    swprintf_s(out, cch, L"\"%s\" (%s, %s)", title, cls, exe ? exe + 1 : path);
 }
 
 int workspace_open_windows(HWND *out, int max)
@@ -535,7 +569,9 @@ void workspace_launch(HWND owner)
         g_run[i].w = workspace_find(a);
         if (g_run[i].w) {
             if (!p) { trace("workspace: %ls is open (no place on this setup)", a->name); continue; }
-            trace("workspace: %ls is open: placing it", a->name);
+            wchar_t d[200];
+            describe(g_run[i].w, d, 200);
+            trace("workspace: %ls is open: placing %ls", a->name, d);
             place(g_run[i].w, a, &g_run[i].work, &g_run[i].place);
             g_run[i].state = ST_SETTLING;
             g_run[i].until = now + SETTLE_MS;
@@ -572,8 +608,10 @@ void workspace_tick(void)
             wchar_t path[MAX_PATH];
             HWND w = find_window(a, g_run[i].pid, &prompt, path);
             if (w) {
-                trace("workspace: %ls opened: placing it", a->name);
-                if (_wcsicmp(path, a->match)) {                       /* a launcher: remember the real program */
+                wchar_t d[200];
+                describe(w, d, 200);
+                trace("workspace: %ls opened: placing %ls", a->name, d);
+                if (!store_id(a) && _wcsicmp(path, a->match)) {                       /* a launcher: remember the real program */
                     trace("workspace: %ls: its window belongs to %ls; matching that from now on", a->name, path);
                     wcscpy_s(g_set.apps[i].match, MAX_PATH, path);
                     settings_save(&g_set);
