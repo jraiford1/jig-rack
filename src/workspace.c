@@ -13,6 +13,7 @@
 #include <appmodel.h>
 #include <shlwapi.h>
 #include <shobjidl.h>
+#include <tlhelp32.h>
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "shlwapi.lib")
 #pragma comment(lib, "version.lib")
@@ -20,6 +21,7 @@
 #pragma comment(lib, "uuid.lib")
 
 #define WAIT_MS 60000           /* how long to wait for a started app's window */
+#define WAIT_PROMPT_MS 600000   /* ...while it shows a prompt (a password, say): up to 10 minutes after starting */
 #define SETTLE_MS 1500          /* when to place it again */
 
 const wchar_t *POSITION_LABELS[POSITIONS] = {
@@ -245,7 +247,53 @@ static BOOL app_window(HWND w)
     return pid != GetCurrentProcessId();
 }
 
-typedef struct { const App *a; HWND found; HWND *list; int n, max; } FindCtx;
+/* A main window, not a prompt: resizable or maximizable, and not a dialog box. (A login prompt comes from the
+   same program as the main window, before it.) */
+static BOOL main_window(HWND w)
+{
+    wchar_t cls[32];
+    GetClassNameW(w, cls, 32);
+    LONG_PTR st = GetWindowLongPtrW(w, GWL_STYLE);
+    return wcscmp(cls, L"#32770") && (st & (WS_THICKFRAME | WS_MAXIMIZEBOX));
+}
+
+/* Every process's parent, for "started by what we launched" (a launcher such as HCL Notes' notes.exe starts the
+   program whose window it is). */
+typedef struct { DWORD pid[1024], parent[1024]; int n; } ProcTree;
+
+static void proc_tree(ProcTree *t)
+{
+    t->n = 0;
+    HANDLE s = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (s == INVALID_HANDLE_VALUE) return;
+    PROCESSENTRY32W e = { sizeof e };
+    for (BOOL ok = Process32FirstW(s, &e); ok && t->n < 1024; ok = Process32NextW(s, &e)) {
+        t->pid[t->n] = e.th32ProcessID;
+        t->parent[t->n++] = e.th32ParentProcessID;
+    }
+    CloseHandle(s);
+}
+
+static BOOL descends(const ProcTree *t, DWORD pid, DWORD root)
+{
+    for (int depth = 0; depth < 8 && pid; depth++) {
+        if (pid == root) return TRUE;
+        int k;
+        for (k = 0; k < t->n && t->pid[k] != pid; k++) {}
+        if (k == t->n) return FALSE;
+        pid = t->parent[k];
+    }
+    return FALSE;
+}
+
+typedef struct {
+    const App *a;
+    DWORD root;                 /* the process we started, or 0 */
+    const ProcTree *tree;
+    HWND found, prompt;         /* its main window; a prompt of it */
+    wchar_t foundPath[MAX_PATH];
+    HWND *list; int n, max;     /* workspace_open_windows */
+} FindCtx;
 
 static BOOL CALLBACK find_enum(HWND w, LPARAM lp)
 {
@@ -253,29 +301,50 @@ static BOOL CALLBACK find_enum(HWND w, LPARAM lp)
     if (!app_window(w)) return TRUE;
     if (c->list) { if (c->n < c->max) c->list[c->n++] = w; return TRUE; }
     DWORD pid = 0;
-    wchar_t path[MAX_PATH];
+    wchar_t path[MAX_PATH] = L"";
     GetWindowThreadProcessId(w, &pid);
-    if (!process_path(pid, path, MAX_PATH) || _wcsicmp(path, c->a->match)) return TRUE;
+    process_path(pid, path, MAX_PATH);
+    BOOL ours = (c->a->match[0] && !_wcsicmp(path, c->a->match)) || (c->root && c->tree && descends(c->tree, pid, c->root));
+    if (!ours) return TRUE;
+    if (!main_window(w)) {
+        if (!c->prompt) c->prompt = w;
+        return TRUE;
+    }
     if (c->a->title[0]) {
         wchar_t t[512];
         GetWindowTextW(w, t, 512);
         if (!StrStrIW(t, c->a->title)) return TRUE;
     }
     c->found = w;                                                     /* the top one, in z-order */
+    wcscpy_s(c->foundPath, MAX_PATH, path);
     return FALSE;
+}
+
+static HWND find_window(const App *a, DWORD root, HWND *prompt, wchar_t *path)
+{
+    ProcTree *tree = NULL;
+    if (root) {
+        tree = HeapAlloc(GetProcessHeap(), 0, sizeof *tree);
+        if (tree) proc_tree(tree);
+    }
+    FindCtx c = { a, root, tree, NULL, NULL, L"", NULL, 0, 0 };
+    EnumWindows(find_enum, (LPARAM)&c);
+    if (tree) HeapFree(GetProcessHeap(), 0, tree);
+    if (prompt) *prompt = c.prompt;
+    if (path) wcscpy_s(path, MAX_PATH, c.foundPath);
+    return c.found;
 }
 
 HWND workspace_find(const App *a)
 {
-    if (!a->match[0]) return NULL;
-    FindCtx c = { a, NULL, NULL, 0, 0 };
-    EnumWindows(find_enum, (LPARAM)&c);
-    return c.found;
+    return a->match[0] ? find_window(a, 0, NULL, NULL) : NULL;
 }
 
 int workspace_open_windows(HWND *out, int max)
 {
-    FindCtx c = { NULL, NULL, out, 0, max };
+    FindCtx c = { 0 };
+    c.list = out;
+    c.max = max;
     EnumWindows(find_enum, (LPARAM)&c);
     return c.n;
 }
@@ -375,7 +444,7 @@ HBITMAP workspace_app_icon(const App *a, int size)
 /* ---------------------------------------------------------------- launching ----------------------------------- */
 
 enum { ST_IDLE, ST_WAITING, ST_SETTLING, ST_DONE, ST_FAILED, ST_UNPLACED };
-static struct { int state; HWND w; ULONGLONG until; Place place; RECT work; } g_run[MAX_APPS];
+static struct { int state; HWND w; ULONGLONG until, started; DWORD pid; Place place; RECT work; } g_run[MAX_APPS];
 static int g_count;
 static HWND g_owner;
 
@@ -418,6 +487,7 @@ void workspace_launch(HWND owner)
         const App *a = &g_set.apps[i];
         const Place *p = l ? workspace_place_of(l, a->id) : NULL;
         g_run[i].state = ST_UNPLACED;
+        g_run[i].pid = 0;
         if (p) {
             g_run[i].place = *p;
             /* the setup's monitor, as it is now (same device, else same place) */
@@ -438,13 +508,19 @@ void workspace_launch(HWND owner)
         }
         if (!a->command[0]) { g_run[i].state = ST_FAILED; continue; }
         SHELLEXECUTEINFOW sei = { sizeof sei };
-        sei.fMask = SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
+        sei.fMask = SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC | SEE_MASK_NOCLOSEPROCESS;
         sei.lpFile = a->command;
         sei.lpParameters = a->args[0] ? a->args : NULL;
         sei.nShow = SW_SHOWNORMAL;
         BOOL ok = ShellExecuteExW(&sei);
-        trace("workspace: starting %ls (%ls %ls): %s", a->name, a->command, a->args, ok ? "ok" : "failed");
+        if (ok && sei.hProcess) {                                     /* its windows may come from a child of it */
+            g_run[i].pid = GetProcessId(sei.hProcess);
+            CloseHandle(sei.hProcess);
+        }
+        trace("workspace: starting %ls (%ls %ls): %s, process %lu", a->name, a->command, a->args, ok ? "ok" : "failed",
+              g_run[i].pid);
         if (!ok) { g_run[i].state = ST_FAILED; continue; }
+        g_run[i].started = now;
         if (p) { g_run[i].state = ST_WAITING; g_run[i].until = now + WAIT_MS; }
     }
     SetTimer(owner, TIMER_WORKSPACE, 250, NULL);
@@ -457,20 +533,33 @@ void workspace_tick(void)
     for (int i = 0; i < g_count && i < g_set.appCount; i++) {
         const App *a = &g_set.apps[i];
         if (g_run[i].state == ST_WAITING) {
-            HWND w = workspace_find(a);
+            HWND prompt = NULL;
+            wchar_t path[MAX_PATH];
+            HWND w = find_window(a, g_run[i].pid, &prompt, path);
             if (w) {
                 trace("workspace: %ls opened: placing it", a->name);
+                if (_wcsicmp(path, a->match)) {                       /* a launcher: remember the real program */
+                    trace("workspace: %ls: its window belongs to %ls; matching that from now on", a->name, path);
+                    wcscpy_s(g_set.apps[i].match, MAX_PATH, path);
+                    settings_save(&g_set);
+                }
                 place(w, a, &g_run[i].work, &g_run[i].place);
                 g_run[i].w = w;
                 g_run[i].state = ST_SETTLING;
                 g_run[i].until = now + SETTLE_MS;
+            } else if (prompt && g_run[i].until < now + WAIT_MS && now < g_run[i].started + WAIT_PROMPT_MS) {
+                if (g_run[i].until <= now + WAIT_MS - 1000) trace("workspace: %ls: waiting while it asks something", a->name);
+                g_run[i].until = now + WAIT_MS;                       /* a prompt (a password): keep waiting */
             } else if (now >= g_run[i].until) {
-                trace("workspace: %ls: no window after %d s", a->name, WAIT_MS / 1000);
+                trace("workspace: %ls: no main window in time", a->name);
                 g_run[i].state = ST_FAILED;
             }
         } else if (g_run[i].state == ST_SETTLING && now >= g_run[i].until) {
-            /* again: the app may have restored its own last place, or rescaled for the monitor */
-            HWND w = IsWindow(g_run[i].w) ? g_run[i].w : workspace_find(a);
+            /* again: the app may have restored its own last place or rescaled for the monitor, or a different main
+               window (after a splash screen) may have taken over */
+            HWND w = find_window(a, g_run[i].pid, NULL, NULL);
+            if (w && w != g_run[i].w && IsWindow(g_run[i].w)) w = g_run[i].w;
+            if (!w && IsWindow(g_run[i].w)) w = g_run[i].w;
             if (w) place(w, a, &g_run[i].work, &g_run[i].place);
             g_run[i].state = ST_DONE;
         }

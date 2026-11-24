@@ -973,8 +973,11 @@ static INT_PTR CALLBACK workspace_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         case IDC_WS_PROGRAM: case IDC_WS_ARGS: case IDC_WS_TITLE:
             if (!a || code != EN_CHANGE) return TRUE;
             if (id == IDC_WS_PROGRAM) {
+                wchar_t old[ARRAYSIZE(a->command)];
+                wcscpy_s(old, ARRAYSIZE(old), a->command);
                 GetDlgItemTextW(h, id, a->command, ARRAYSIZE(a->command));
-                if (_wcsnicmp(a->command, L"shell:", 6))                   /* a program: its windows are its own */
+                /* the program's windows are its own, unless they were found to belong to another (a launcher's) */
+                if (_wcsnicmp(a->command, L"shell:", 6) && (!a->match[0] || !_wcsicmp(a->match, old)))
                     wcscpy_s(a->match, MAX_PATH, a->command);
                 if (g_icon[g_app]) { DeleteObject(g_icon[g_app]); g_icon[g_app] = NULL; }
                 InvalidateRect(g_canvas, NULL, FALSE);
