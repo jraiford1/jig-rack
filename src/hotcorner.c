@@ -899,6 +899,11 @@ static void test_downloads(void)
         if (wcscmp(got, w[k].want)) { ok = FALSE; trace("  when: got \"%ls\", want \"%ls\"", got, w[k].want); }
     }
     EXPECT(ok, "downloads: when (just now, minutes, hours, yesterday, days, a date, another year)");
+    EXPECT(downloads_button_plan(3, 1, 0, TRUE) == DL_PLAN_MAIN && downloads_button_plan(3, 1, 1, TRUE) == DL_PLAN_OTHERS &&
+           downloads_button_plan(3, 1, 2, TRUE) == DL_PLAN_EACH && downloads_button_plan(3, 0, 2, TRUE) == DL_PLAN_MAIN &&
+           downloads_button_plan(1, 1, 2, TRUE) == DL_PLAN_MAIN && downloads_button_plan(3, 1, 2, FALSE) == DL_PLAN_MAIN,
+           "downloads: one button per taskbar (apps on all taskbars: one window; main + where open: the others; where "
+           "open: each)");
     EXPECT(downloads_command_id(L"sort-kind") == DL_CMD_SORT_KIND && downloads_command_id(L"open") == DL_CMD_OPEN &&
            downloads_command_id(L"rm -rf") == -1, "downloads: jump list commands");
 }

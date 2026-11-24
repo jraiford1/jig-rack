@@ -10,6 +10,7 @@
  * their own AppUserModelID, so they group as "Downloads" with its own icon, apart from Jig Rack's other windows. */
 #define COBJMACROS
 #include "jigrack.h"
+#include "gdip.h"
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <shlwapi.h>
@@ -217,6 +218,7 @@ static Button *button_of(HWND w)
 }
 
 static LRESULT CALLBACK list_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR id, DWORD_PTR ref);
+static HMONITOR click_monitor(void);
 
 static void panel_close(void)
 {
@@ -288,10 +290,12 @@ static void panel_open(HWND w)
     int want = g_set.dlCount < 1 ? 1 : g_set.dlCount > DL_SHOWN_MAX ? DL_SHOWN_MAX : g_set.dlCount;
     g_nitems = downloads_collect(g_folder, g_set.dlSort, g_items, want);
 
+    HMONITOR mon = click_monitor();                                   /* over the taskbar that was clicked */
+    if (!mon) mon = b->mon;
     MONITORINFO mi = { sizeof mi };
-    GetMonitorInfoW(b->mon, &mi);
+    GetMonitorInfoW(mon, &mi);
     UINT dpi = 96, dx, dy;
-    if (GetDpiForMonitor(b->mon, MDT_EFFECTIVE_DPI, &dx, &dy) == S_OK) dpi = dx;
+    if (GetDpiForMonitor(mon, MDT_EFFECTIVE_DPI, &dx, &dy) == S_OK) dpi = dx;
     int margin = MulDiv(12, dpi, 96), pad = MulDiv(12, dpi, 96);
     int width = MulDiv(380, dpi, 96), titleH = MulDiv(40, dpi, 96), footH = MulDiv(10, dpi, 96);   /* just a margin: the folder is in the right-click menu */
     int maxH = (mi.rcWork.bottom - mi.rcWork.top) * 3 / 4;
@@ -354,7 +358,7 @@ static void panel_open(HWND w)
     DwmSetWindowAttribute(w, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, &round, sizeof round);
     SetForegroundWindow(w);
     SetFocus(g_list ? g_list : w);
-    trace("downloads: panel on monitor %p, %d item(s) from %ls", (void *)b->mon, g_nitems, g_folder);
+    trace("downloads: panel on monitor %p, %d item(s) from %ls", (void *)mon, g_nitems, g_folder);
 }
 
 static void open_item(int i, BOOL showInFolder)
@@ -391,13 +395,23 @@ static void drag_item(HWND w, int i)
 }
 
 /* Is the cursor on the taskbar of this button's monitor (in the monitor, outside its work area)? */
+/* The monitor whose taskbar the cursor is on (in the monitor, outside its work area), or NULL. One button can be on
+   several taskbars (when Windows shows every app on every taskbar), so this, not the button's own monitor, says
+   where the click was. */
+static HMONITOR click_monitor(void)
+{
+    POINT pt;
+    if (!GetCursorPos(&pt)) return NULL;
+    HMONITOR mon = MonitorFromPoint(pt, MONITOR_DEFAULTTONULL);
+    MONITORINFO mi = { sizeof mi };
+    if (!mon || !GetMonitorInfoW(mon, &mi)) return NULL;
+    return PtInRect(&mi.rcMonitor, pt) && !PtInRect(&mi.rcWork, pt) ? mon : NULL;
+}
+
+/* Was it a click on a taskbar? */
 static BOOL from_taskbar(HWND w)
 {
-    Button *b = button_of(w);
-    MONITORINFO mi = { sizeof mi };
-    POINT pt;
-    if (!b || !GetMonitorInfoW(b->mon, &mi) || !GetCursorPos(&pt)) return FALSE;
-    return PtInRect(&mi.rcMonitor, pt) && !PtInRect(&mi.rcWork, pt);
+    return button_of(w) && click_monitor();
 }
 
 /* Closed from the keyboard (Esc): the focus goes back to the window that had it, not to an invisible button. */
@@ -526,6 +540,84 @@ static void button_clicked(HWND w, const char *how)
     else if (!justClosed && from_taskbar(w)) panel_open(w);
 }
 
+/* The hover preview: the folder's name and its newest few items, like a small copy of the panel. (Without it the
+   taskbar shows a blank picture of the invisible button window.) Drawn with GDI on white, then made opaque. */
+static HBITMAP preview_bitmap(int maxW, int maxH)
+{
+    int W = maxW, H = maxH;
+    if (W <= 0 || H <= 0) return NULL;
+    if (H > W) H = W;                                                  /* landscape-ish */
+    BITMAPINFO bi = { { sizeof bi.bmiHeader, W, -H, 1, 32, BI_RGB } };
+    void *bits = NULL;
+    HDC dc = CreateCompatibleDC(NULL);
+    HBITMAP bmp = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &bits, NULL, 0);
+    if (!bmp) { DeleteDC(dc); return NULL; }
+    HGDIOBJ oldBmp = SelectObject(dc, bmp);
+    RECT all = { 0, 0, W, H };
+    FillRect(dc, &all, GetSysColorBrush(COLOR_WINDOW));
+    int line = H / 7 < 14 ? 14 : H / 7, pad = line / 3, icon = line - 4;
+    HFONT title = CreateFontW(-(line * 3 / 4), 0, 0, 0, FW_SEMIBOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+    HFONT body = CreateFontW(-(line * 3 / 5), 0, 0, 0, FW_NORMAL, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Segoe UI");
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, GetSysColor(COLOR_WINDOWTEXT));
+    wchar_t folder[MAX_PATH];
+    downloads_folder(folder, MAX_PATH);
+    const wchar_t *name = PathFindFileNameW(folder);
+    HGDIOBJ oldFont = SelectObject(dc, title);
+    RECT r = { pad, pad / 2, W - pad, pad / 2 + line };
+    DrawTextW(dc, name && *name ? name : L"Downloads", -1, &r, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+    SelectObject(dc, body);
+    DlItem items[6];
+    int rows = (H - r.bottom) / line, n = downloads_collect(folder, g_set.dlSort, items, rows < 6 ? rows : 6);
+    if (!n) {
+        RECT e = { pad, r.bottom, W - pad, r.bottom + line };
+        SetTextColor(dc, GetSysColor(COLOR_GRAYTEXT));
+        DrawTextW(dc, L"Nothing here yet.", -1, &e, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+    }
+    for (int i = 0; i < n; i++) {
+        int y = r.bottom + i * line;
+        wchar_t path[MAX_PATH * 2];
+        swprintf_s(path, ARRAYSIZE(path), L"%s\\%s", folder, items[i].name);
+        SHFILEINFOW sfi = { 0 };
+        if (SHGetFileInfoW(path, 0, &sfi, sizeof sfi, SHGFI_ICON | SHGFI_SMALLICON) && sfi.hIcon) {
+            DrawIconEx(dc, pad, y + (line - icon) / 2, sfi.hIcon, icon, icon, 0, NULL, DI_NORMAL);
+            DestroyIcon(sfi.hIcon);
+        }
+        RECT t = { pad + icon + pad / 2, y, W - pad, y + line };
+        DrawTextW(dc, items[i].name, -1, &t, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+    }
+    GdiFlush();
+    for (int i = 0; i < W * H; i++) ((BYTE *)bits)[i * 4 + 3] = 255;   /* all opaque: GDI leaves alpha at 0 */
+    SelectObject(dc, oldFont);
+    SelectObject(dc, oldBmp);
+    DeleteObject(title);
+    DeleteObject(body);
+    DeleteDC(dc);
+    return bmp;
+}
+
+static void preview_send(HWND w, int maxW, int maxH)
+{
+    HBITMAP bmp = preview_bitmap(maxW, maxH);
+    if (!bmp) return;
+    DwmSetIconicThumbnail(w, bmp, 0);
+    DeleteObject(bmp);
+}
+
+/* --preview: the hover preview as a PNG, at a typical size. */
+void downloads_write_preview(const wchar_t *dir)
+{
+    static const CLSID png = { 0x557cf406, 0x1a04, 0x11d3, { 0x9a, 0x73, 0x00, 0x00, 0xf8, 0x1e, 0xf3, 0x2e } };
+    HBITMAP bmp = preview_bitmap(MulDiv(200, GetDpiForSystem(), 96), MulDiv(140, GetDpiForSystem(), 96));
+    if (!bmp) return;
+    GpBitmap *gb = NULL;
+    GdipCreateBitmapFromHBITMAP(bmp, NULL, &gb);
+    wchar_t path[MAX_PATH];
+    swprintf_s(path, MAX_PATH, L"%s\\downloads-hover-preview.png", dir);
+    if (gb) { GdipSaveImageToFile(gb, path, &png, NULL); GdipDisposeImage(gb); }
+    DeleteObject(bmp);
+}
+
 static LRESULT CALLBACK button_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp)
 {
     switch (msg) {
@@ -616,6 +708,12 @@ static LRESULT CALLBACK button_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp)
         SetBkColor((HDC)wp, GetSysColor(COLOR_WINDOW));
         SetTextColor((HDC)wp, GetSysColor(COLOR_WINDOWTEXT));
         return (LRESULT)GetSysColorBrush(COLOR_WINDOW);
+    case WM_DWMSENDICONICTHUMBNAIL:                                   /* the taskbar's hover preview */
+        preview_send(w, HIWORD(lp), LOWORD(lp));
+        return 0;
+    case WM_TIMER:
+        if (wp == 1) DwmInvalidateIconicBitmaps(w);
+        return 0;
     case WM_CLOSE:
         panel_close();
         return 0;                                                     /* the button stays */
@@ -626,13 +724,26 @@ static LRESULT CALLBACK button_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp)
     return DefWindowProcW(w, msg, wp, lp);
 }
 
+/* Which monitors get a button window, so that each taskbar has exactly one Downloads button. Windows shows a
+   window's button on the taskbars its multi-monitor setting says: every taskbar (its default), the main one plus
+   the one where the window is, or only where it is. More than one of these windows on a taskbar would be combined
+   into one button that, clicked, shows their blank thumbnails instead of the list. */
+int downloads_button_plan(int monitors, DWORD taskbarOnAll, DWORD mode, BOOL allMonitors)
+{
+    if (monitors < 2 || !taskbarOnAll || !allMonitors) return DL_PLAN_MAIN;
+    if (mode == 0) return DL_PLAN_MAIN;     /* every taskbar shows every app: one window is on all of them */
+    if (mode == 1) return DL_PLAN_OTHERS;   /* the main taskbar shows them all; each other one its own */
+    return DL_PLAN_EACH;                    /* only where the window is */
+}
+
 static BOOL CALLBACK add_monitor(HMONITOR mon, HDC dc, LPRECT r, LPARAM lp)
 {
-    (void)dc; (void)r; (void)lp;
+    (void)dc; (void)r;
     if (g_nbuttons >= (int)ARRAYSIZE(g_buttons)) return FALSE;
     MONITORINFO mi = { sizeof mi };
     GetMonitorInfoW(mon, &mi);
-    if (!g_set.dlAllMonitors && !(mi.dwFlags & MONITORINFOF_PRIMARY)) return TRUE;
+    BOOL main = (mi.dwFlags & MONITORINFOF_PRIMARY) != 0;
+    if ((lp == DL_PLAN_MAIN && !main) || (lp == DL_PLAN_OTHERS && main)) return TRUE;
     Button *b = &g_buttons[g_nbuttons];
     ZeroMemory(b, sizeof *b);
     b->mon = mon;
@@ -644,8 +755,11 @@ static BOOL CALLBACK add_monitor(HMONITOR mon, HDC dc, LPRECT r, LPARAM lp)
     if (!b->hwnd) return TRUE;
     set_window_props(b->hwnd, TRUE);
     BOOL on = TRUE;
-    DwmSetWindowAttribute(b->hwnd, DWMWA_FORCE_ICONIC_REPRESENTATION, &on, sizeof on);   /* hover shows the icon */
+    /* Hovering over the button shows a preview: ours (preview_send), not a picture of this invisible window. */
+    DwmSetWindowAttribute(b->hwnd, DWMWA_FORCE_ICONIC_REPRESENTATION, &on, sizeof on);
+    DwmSetWindowAttribute(b->hwnd, DWMWA_HAS_ICONIC_BITMAP, &on, sizeof on);
     DwmSetWindowAttribute(b->hwnd, DWMWA_DISALLOW_PEEK, &on, sizeof on);
+    SetTimer(b->hwnd, 1, 30000, NULL);                               /* the preview catches up with new downloads */
     UINT dx = 96, dy;
     GetDpiForMonitor(mon, MDT_EFFECTIVE_DPI, &dx, &dy);
     b->big = downloads_load_icon(GetSystemMetricsForDpi(SM_CXICON, dx));
@@ -686,8 +800,15 @@ void downloads_apply(void)
 {
     buttons_destroy();
     if (!g_set.dlButton) { downloads_jumplist(); return; }
-    EnumDisplayMonitors(NULL, NULL, add_monitor, 0);
-    trace("downloads: %d taskbar button(s)", g_nbuttons);
+    DWORD on = 1, mode = 0, size = sizeof(DWORD);                     /* Windows' defaults when they aren't set */
+    const wchar_t *key = L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced";
+    RegGetValueW(HKEY_CURRENT_USER, key, L"MMTaskbarEnabled", RRF_RT_REG_DWORD, NULL, &on, &size);
+    size = sizeof(DWORD);
+    RegGetValueW(HKEY_CURRENT_USER, key, L"MMTaskbarMode", RRF_RT_REG_DWORD, NULL, &mode, &size);
+    int plan = downloads_button_plan(GetSystemMetrics(SM_CMONITORS), on, mode, g_set.dlAllMonitors);
+    EnumDisplayMonitors(NULL, NULL, add_monitor, plan);
+    static const char *plans[] = { "each monitor", "the main monitor", "each monitor but the main one" };
+    trace("downloads: taskbar on all monitors %lu, mode %lu: a button on %s, %d window(s)", on, mode, plans[plan], g_nbuttons);
     downloads_jumplist();
 }
 
