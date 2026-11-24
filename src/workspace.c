@@ -181,10 +181,29 @@ void workspace_remove_app(int index)
 /* ---------------------------------------------------------------- placing a window ---------------------------- */
 
 /* Put the window on the target: its visible frame there (windows have invisible resize borders around it). */
+/* Already there? Maximized on the right monitor, or its visible frame within a few pixels of the target. */
+static BOOL in_place(HWND w, const RECT *work, const RECT *t, int pos)
+{
+    if (IsIconic(w)) return FALSE;
+    if (pos == POS_MAXIMIZED) {
+        MONITORINFO mi = { sizeof mi };
+        GetMonitorInfoW(MonitorFromWindow(w, MONITOR_DEFAULTTONEAREST), &mi);
+        return IsZoomed(w) && EqualRect(&mi.rcWork, work);
+    }
+    RECT fr;
+    if (IsZoomed(w) || FAILED(DwmGetWindowAttribute(w, DWMWA_EXTENDED_FRAME_BOUNDS, &fr, sizeof fr))) return FALSE;
+    return abs(fr.left - t->left) <= 3 && abs(fr.top - t->top) <= 3 && abs(fr.right - t->right) <= 3 &&
+           abs(fr.bottom - t->bottom) <= 3;
+}
+
 static BOOL place(HWND w, const App *a, const RECT *work, const Place *p)
 {
     RECT t;
     workspace_target(work, p->pos, p->x, p->y, p->w, p->h, &t);
+    if (in_place(w, work, &t, p->pos)) {                              /* leave it be */
+        trace("workspace: %ls is already in place", a->name);
+        return TRUE;
+    }
     RECT wr, fr;
     GetWindowRect(w, &wr);
     if (IsZoomed(w) || IsIconic(w) || FAILED(DwmGetWindowAttribute(w, DWMWA_EXTENDED_FRAME_BOUNDS, &fr, sizeof fr)))
