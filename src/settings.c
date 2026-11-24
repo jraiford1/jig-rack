@@ -2,8 +2,8 @@
  * Copyright (C) 2026 Jon Raiford. GPL-3.0-or-later; see LICENSE.
  *
  * The file is UTF-16 (so monitor and device names keep any character) and read and written with the
- * Get/WritePrivateProfile functions. With no file, the defaults apply: no mouse chosen (the tray shows the Jig Rack
- * icon) and one hot corner rule, the top-right of the workspace locks the PC after 5 s with a countdown.
+ * Get/WritePrivateProfile functions. With no file, the defaults apply: nothing is set up (no mouse chosen, so the
+ * tray shows the Jig Rack icon; no hot corners; no Downloads button; no workspace apps).
  */
 #include "jigrack.h"
 #include <shlobj.h>
@@ -73,8 +73,7 @@ void settings_defaults(Settings *s)
     s->dlAllMonitors = 1;
     s->dlCount = 20;
     s->nextAppId = 1;
-    s->ruleCount = 1;
-    rule_defaults(&s->rules[0]);
+    s->ruleCount = 0;                       /* no hot corners until you add one */
 }
 
 static int find_key(const wchar_t *v, const wchar_t *const *keys, int n, int dflt)

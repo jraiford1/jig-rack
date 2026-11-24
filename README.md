@@ -43,8 +43,8 @@ slot on it, so it's found again even while it's asleep.
 ### Hot corners
 
 Rest the cursor in a screen corner and something happens: lock the PC, sleep, turn off the screens, show the
-desktop, open Task View, or run a command. Out of the box, resting 5 s in the **top-right of the workspace** locks
-the PC.
+desktop, open Task View, or run a command. There are none until you add one; a new rule starts as resting 5 s in
+the **top-right of the workspace** to lock the PC.
 
 Set it up in **Settings → Hot Corners**: a list of rules, with **+** and **-** to add and remove them. Each rule
 picks:
@@ -152,8 +152,8 @@ removable drive), **Settings…** and **Exit** (double-clicking the icon opens S
 
 **Settings** opens a window with a tab for each jig. Every change is saved and takes effect at once; there's
 nothing to apply and no restart. The settings live in `%APPDATA%\Jig Rack\settings.ini` (UTF-16, written by the
-window). With no settings file, no mouse is chosen and the hot corner is the top-right of the workspace, locking
-after 5 s.
+window). With no settings file nothing is set up: no mouse is chosen, there are no hot corners, no Downloads button
+and no workspace apps.
 
 Only one copy runs at a time. If Explorer restarts, the icon comes back on its own.
 

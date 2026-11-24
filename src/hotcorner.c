@@ -478,7 +478,7 @@ void hotcorner_init(HINSTANCE inst, HWND owner)
 /* --demo-countdown: 5..1 at the first rule's corner (or the workspace's top-right), without any action. */
 void hotcorner_demo_countdown(void)
 {
-    if (!g_set.ruleCount) settings_defaults(&g_set);
+    if (!g_set.ruleCount) { settings_defaults(&g_set); g_set.ruleCount = 1; rule_defaults(&g_set.rules[0]); }
     layout();
     POINT at = g_run[0].n ? g_run[0].pt[0] : (POINT){ 0, 0 };
     for (int n = 5; n >= 1; n--) {
@@ -515,9 +515,17 @@ static BOOL dwell(int i, POINT p, ULONGLONG t0, int ms)
     return fired;
 }
 
+/* The defaults plus one new rule (top-right of the workspace, lock, 5 s): what the tests start from. */
+static void one_rule(Settings *s)
+{
+    settings_defaults(s);
+    s->ruleCount = 1;
+    rule_defaults(&s->rules[0]);
+}
+
 static void test_default_rule(const MonitorDesc *m, int n)
 {
-    settings_defaults(&g_set);                               /* top-right of the workspace, lock, 5 s */
+    one_rule(&g_set);
     reset_runs();
     POINT c = g_run[0].pt[0], away = { c.x - 400, c.y + 400 }, nearIn = { c.x - 2, c.y + 2 };
     ULONGLONG t = 1000000;
@@ -556,7 +564,7 @@ static void test_more_rules(const MonitorDesc *m, int n)
     wchar_t what[160];
 
     /* bottom-left of the workspace, 1.5 s */
-    settings_defaults(&g_set);
+    one_rule(&g_set);
     g_set.rules[0].corner = CORNER_BL;
     g_set.rules[0].action = ACT_SHOW_DESKTOP;
     g_set.rules[0].delayMs = 1500;
@@ -573,7 +581,7 @@ static void test_more_rules(const MonitorDesc *m, int n)
     EXPECT(!dwell(0, blOut, t + 11000, 3000), "bottom-left rule: 3 px away is outside the zone");
 
     /* two rules on one corner: 2 s and 5 s */
-    settings_defaults(&g_set);
+    one_rule(&g_set);
     g_set.ruleCount = 2;
     rule_defaults(&g_set.rules[1]);
     g_set.rules[0].action = ACT_SHOW_DESKTOP;
@@ -591,7 +599,7 @@ static void test_more_rules(const MonitorDesc *m, int n)
     EXPECT(when[0] == 2000 && when[1] == 5000 && times[0] == 1 && times[1] == 1, w8);
 
     /* any monitor's top-left */
-    settings_defaults(&g_set);
+    one_rule(&g_set);
     g_set.rules[0].corner = CORNER_TL;
     g_set.rules[0].where = WHERE_ANY;
     g_set.rules[0].delayMs = 1000;
@@ -610,7 +618,7 @@ static void test_more_rules(const MonitorDesc *m, int n)
     /* one monitor's top-left */
     MonitorDesc named[MAX_MONS];
     int nn = monitors(named, MAX_MONS, TRUE);
-    settings_defaults(&g_set);
+    one_rule(&g_set);
     g_set.rules[0].corner = CORNER_TL;
     g_set.rules[0].where = WHERE_MONITOR;
     g_set.rules[0].delayMs = 1000;
@@ -639,7 +647,7 @@ static void test_more_rules(const MonitorDesc *m, int n)
 static void test_low_battery(void)
 {
     Battery saved = g_battery;
-    settings_defaults(&g_set);
+    one_rule(&g_set);
     g_set.mouseType = MOUSE_LOGITECH;
     g_set.productId = 0xC547;
     g_set.deviceIndex = 1;
@@ -699,7 +707,7 @@ static void test_settings_file(void)
     DeleteFileW(tmp);
     settings_use_file(tmp);
     Settings a, b;
-    settings_defaults(&a);
+    one_rule(&a);
     a.mouseType = MOUSE_LOGITECH;
     a.productId = 0xC547;
     a.deviceIndex = 2;
@@ -768,10 +776,9 @@ static void test_settings_file(void)
     EXPECT(b.ruleCount == 1 && memcmp(&a.rules[0], &b.rules[0], sizeof(Rule)) == 0, "settings file: removing rules");
     DeleteFileW(tmp);
     settings_load(&b);
-    EXPECT(b.mouseType == MOUSE_NONE && b.ruleCount == 1 && b.rules[0].corner == CORNER_TR &&
-           b.rules[0].action == ACT_LOCK && b.rules[0].delayMs == 5000 && !b.rules[0].warnLow && b.lowPercent == 20 &&
+    EXPECT(b.mouseType == MOUSE_NONE && b.ruleCount == 0 && b.lowPercent == 20 && b.appCount == 0 && b.layoutCount == 0 &&
            !b.dlButton && b.dlAllMonitors && b.dlCount == 20 && b.dlSort == DL_SORT_ADDED && !b.dlIcon[0] && !b.dlFolder[0],
-           "no settings file: the defaults");
+           "no settings file: the defaults (nothing set up: no hot corners, no Downloads button, no apps)");
     settings_use_file(old);
 }
 
