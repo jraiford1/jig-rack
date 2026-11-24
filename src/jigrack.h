@@ -208,6 +208,9 @@ HICON downloads_load_icon(int size);
 int downloads_collect(const wchar_t *folder, int sort, DlItem *out, int max);
 void downloads_when(FILETIME ft, FILETIME now, wchar_t *out, int cch);
 void downloads_jumplist(void);                       /* the button's right-click menu */
+enum { DL_PLAN_EACH, DL_PLAN_MAIN, DL_PLAN_OTHERS };
+int  downloads_button_plan(int monitors, DWORD taskbarOnAll, DWORD mode, BOOL allMonitors);
+void downloads_write_preview(const wchar_t *dir);         /* --preview: the taskbar hover preview */
 void downloads_command(int cmd);                     /* DL_CMD_*, in the running copy */
 int downloads_command_id(const wchar_t *name);       /* "sort-name" -> DL_CMD_SORT_NAME; -1 if unknown */
 extern const wchar_t *DL_SORT_LABELS[DL_SORTS];

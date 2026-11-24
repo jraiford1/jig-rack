@@ -106,11 +106,14 @@ icon (**Change icon…** picks one from any `.ico`, `.exe` or `.dll`; **Default*
 icon), the folder (any folder, not just Downloads), how many of the newest items to show (20 unless you change it)
 and the sort order.
 
-How it works: Windows puts a window's taskbar button on the taskbar of the monitor the window is on, so Jig Rack
-keeps one tiny, invisible, click-through window on each monitor, which becomes the panel when its button is
-clicked. They have their own taskbar identity (AppUserModelID), so they never group with anything else, can't be
-pinned, and have their own right-click menu (a jump list, whose entries run `JigRack.exe --downloads <command>`,
-which passes the command to the running copy). The folder is read only when the panel opens.
+How it works: Jig Rack keeps tiny, invisible, click-through windows whose taskbar buttons are the Downloads button,
+and one becomes the panel when clicked. How many depends on Windows' "show my taskbar apps on" setting, so that each
+taskbar has exactly one button: all taskbars (the Windows default): one window, which shows on every taskbar; the
+main taskbar and the one where the window is open: one per other monitor; only where it's open: one per monitor. The
+panel opens over the taskbar that was clicked. Hovering shows a preview with the newest items. The windows have their
+own taskbar identity (AppUserModelID), so they never group with anything else, can't be pinned, and have their own
+right-click menu (a jump list, whose entries run `JigRack.exe --downloads <command>`, which passes the command to the
+running copy). The folder is read only when the panel opens.
 
 ### Workspace
 

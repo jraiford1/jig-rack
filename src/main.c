@@ -188,6 +188,9 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         if (wp == TIMER_CORNER) hotcorner_tick();
         else if (wp == TIMER_WORKSPACE) workspace_tick();
         return 0;
+    case WM_SETTINGCHANGE:                                  /* the taskbar's settings (which taskbars show apps) */
+        if (lp && !wcscmp((const wchar_t *)lp, L"TraySettings")) downloads_apply();
+        break;
     case WM_DISPLAYCHANGE:                                  /* monitor added, removed or rearranged */
         hotcorner_layout_changed();
         downloads_apply();
@@ -285,6 +288,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmd, int show_cmd)
     if (argv && (v = arg_after(argc, argv, L"--preview")) != NULL) {
         icons_write_previews(v);
         hotcorner_write_previews(v);
+        downloads_write_preview(v);
         return 0;
     }
     if (argv && (v = arg_after(argc, argv, L"--write-ico")) != NULL) return icons_write_ico(v) ? 0 : 1;
