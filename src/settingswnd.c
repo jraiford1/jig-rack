@@ -10,8 +10,9 @@
 #include <shobjidl.h>
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "uxtheme.lib")
+#pragma comment(lib, "comdlg32.lib")
 
-enum { PAGE_MOUSE, PAGE_CORNERS, PAGE_DOWNLOADS, PAGES };
+enum { PAGE_MOUSE, PAGE_CORNERS, PAGE_DOWNLOADS, PAGE_WORKSPACE, PAGES };
 
 static HINSTANCE g_inst;
 static HWND g_dlg, g_tab, g_pages[PAGES];
@@ -400,6 +401,251 @@ static INT_PTR CALLBACK corners_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     return FALSE;
 }
 
+/* ---------------------------------------------------------------- Workspace tab ------------------------------- */
+
+static int g_app = -1;                      /* selected workspace app */
+
+static void apps_fill(HWND pg)
+{
+    HWND lb = GetDlgItem(pg, IDC_WS_APPS);
+    SendMessageW(lb, LB_RESETCONTENT, 0, 0);
+    for (int i = 0; i < g_set.appCount; i++) {
+        const App *a = &g_set.apps[i];
+        wchar_t t[400], where[96];
+        if (!a->monitor[0]) wcscpy_s(where, 96, L"main monitor");
+        else swprintf_s(where, 96, L"%s", a->monitorName[0] ? a->monitorName : L"a monitor");
+        if (a->pos == POS_CUSTOM)
+            swprintf_s(t, 400, L"%s: %s, at %d%%, %d%% (%d%% \x00d7 %d%%)", a->name[0] ? a->name : L"(no program)", where,
+                       a->x, a->y, a->w, a->h);
+        else
+            swprintf_s(t, 400, L"%s: %s, %s", a->name[0] ? a->name : L"(no program)", where, POSITION_LABELS[a->pos]);
+        SendMessageW(lb, LB_ADDSTRING, 0, (LPARAM)t);
+    }
+    if (g_app >= g_set.appCount) g_app = g_set.appCount - 1;
+    SendMessageW(lb, LB_SETCURSEL, g_app, 0);
+    rules_fit(lb);                                             /* scroll sideways only as far as needed */
+}
+
+static void app_fill_editor(HWND pg)
+{
+    g_filling = TRUE;
+    BOOL have = g_app >= 0 && g_app < g_set.appCount;
+    static const int ids[] = { IDC_WS_DEL, IDC_WS_GROUP, IDC_WS_PROGRAM, IDC_WS_BROWSE, IDC_WS_ARGS, IDC_WS_TITLE,
+                               IDC_WS_MONITOR, IDC_WS_POS, IDC_WS_CURRENT, IDC_WS_L1, IDC_WS_L2, IDC_WS_L3, IDC_WS_L4,
+                               IDC_WS_L5 };
+    for (int k = 0; k < (int)ARRAYSIZE(ids); k++) EnableWindow(GetDlgItem(pg, ids[k]), have);
+    EnableWindow(GetDlgItem(pg, IDC_WS_ADD), g_set.appCount < MAX_APPS);
+    EnableWindow(GetDlgItem(pg, IDC_WS_UP), have && g_app > 0);
+    EnableWindow(GetDlgItem(pg, IDC_WS_DOWN), have && g_app < g_set.appCount - 1);
+    HWND mon = GetDlgItem(pg, IDC_WS_MONITOR);
+    SendMessageW(mon, CB_RESETCONTENT, 0, 0);
+    const App *a = have ? &g_set.apps[g_app] : NULL;
+    if (a) {
+        SetDlgItemTextW(pg, IDC_WS_PROGRAM, a->command);
+        SetDlgItemTextW(pg, IDC_WS_ARGS, a->args);
+        SetDlgItemTextW(pg, IDC_WS_TITLE, a->title);
+        int i = (int)SendMessageW(mon, CB_ADDSTRING, 0, (LPARAM)L"The main monitor");
+        SendMessageW(mon, CB_SETITEMDATA, i, (LPARAM)-1);
+        int sel = 0;
+        for (int k = 0; k < g_nmons; k++) {
+            wchar_t t[160];
+            const wchar_t *gdi = wcsncmp(g_mons[k].gdi, L"\\\\.\\", 4) == 0 ? g_mons[k].gdi + 4 : g_mons[k].gdi;
+            swprintf_s(t, 160, L"%s \x2014 %ld \x00d7 %ld (%s)", g_mons[k].name, g_mons[k].r.right - g_mons[k].r.left,
+                       g_mons[k].r.bottom - g_mons[k].r.top, gdi);
+            i = (int)SendMessageW(mon, CB_ADDSTRING, 0, (LPARAM)t);
+            SendMessageW(mon, CB_SETITEMDATA, i, k);
+            if (a->monitor[0] && _wcsicmp(g_mons[k].path, a->monitor) == 0) sel = i;
+        }
+        if (a->monitor[0] && sel == 0) {                       /* its monitor isn't connected now */
+            wchar_t t[160];
+            swprintf_s(t, 160, L"%s (not connected)", a->monitorName[0] ? a->monitorName : L"A monitor");
+            sel = (int)SendMessageW(mon, CB_ADDSTRING, 0, (LPARAM)t);
+            SendMessageW(mon, CB_SETITEMDATA, sel, (LPARAM)-3);
+        }
+        SendMessageW(mon, CB_SETCURSEL, sel, 0);
+        SendDlgItemMessageW(pg, IDC_WS_POS, CB_SETCURSEL, a->pos, 0);
+        SetDlgItemInt(pg, IDC_WS_X, a->x, FALSE);
+        SetDlgItemInt(pg, IDC_WS_Y, a->y, FALSE);
+        SetDlgItemInt(pg, IDC_WS_W, a->w, FALSE);
+        SetDlgItemInt(pg, IDC_WS_H, a->h, FALSE);
+    } else {
+        static const int clear[] = { IDC_WS_PROGRAM, IDC_WS_ARGS, IDC_WS_TITLE, IDC_WS_X, IDC_WS_Y, IDC_WS_W, IDC_WS_H };
+        for (int k = 0; k < (int)ARRAYSIZE(clear); k++) SetDlgItemTextW(pg, clear[k], L"");
+        SendDlgItemMessageW(pg, IDC_WS_POS, CB_SETCURSEL, (WPARAM)-1, 0);
+    }
+    BOOL custom = a && a->pos == POS_CUSTOM;
+    static const int cust[] = { IDC_WS_X, IDC_WS_Y, IDC_WS_W, IDC_WS_H, IDC_WS_L6, IDC_WS_L7, IDC_WS_L8, IDC_WS_L9, IDC_WS_L10 };
+    for (int k = 0; k < (int)ARRAYSIZE(cust); k++) EnableWindow(GetDlgItem(pg, cust[k]), custom);
+    g_filling = FALSE;
+}
+
+static void apps_changed(HWND pg)
+{
+    save_and_apply(0);
+    apps_fill(pg);
+    app_fill_editor(pg);
+}
+
+/* "+": a menu of the open app windows (adds one with its program, monitor and place), and "Program file...". */
+static void app_add(HWND pg)
+{
+    if (g_set.appCount >= MAX_APPS) return;
+    HWND wins[40];
+    int n = workspace_open_windows(wins, 40);
+    HMENU m = CreatePopupMenu();
+    for (int i = 0; i < n; i++) {
+        wchar_t t[120];
+        GetWindowTextW(wins[i], t, 100);
+        if (wcslen(t) >= 99) wcscat_s(t, 120, L"\x2026");
+        for (wchar_t *c = t; *c; c++) if (*c == L'&') *c = L'+';
+        AppendMenuW(m, MF_STRING, 100 + i, t);
+    }
+    if (n) AppendMenuW(m, MF_SEPARATOR, 0, NULL);
+    AppendMenuW(m, MF_STRING, 1, L"Program &file\x2026");
+    RECT r;
+    GetWindowRect(GetDlgItem(pg, IDC_WS_ADD), &r);
+    int cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_LEFTBUTTON, r.left, r.bottom, 0, pg, NULL);
+    DestroyMenu(m);
+    if (!cmd) return;
+    App a;
+    ZeroMemory(&a, sizeof a);
+    a.pos = POS_MAXIMIZED;
+    a.w = 50; a.h = 100;
+    if (cmd >= 100 && cmd < 100 + n && IsWindow(wins[cmd - 100])) {
+        workspace_app_from_window(wins[cmd - 100], &a);
+    } else {
+        wchar_t file[MAX_PATH] = L"";
+        OPENFILENAMEW of = { sizeof of };
+        of.hwndOwner = pg;
+        of.lpstrFilter = L"Programs\0*.exe;*.lnk;*.bat;*.cmd\0All files\0*.*\0";
+        of.lpstrFile = file;
+        of.nMaxFile = MAX_PATH;
+        of.Flags = OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+        if (!GetOpenFileNameW(&of)) return;
+        workspace_app_from_file(file, &a);
+    }
+    g_set.apps[g_set.appCount++] = a;
+    g_app = g_set.appCount - 1;
+    apps_changed(pg);
+}
+
+static INT_PTR CALLBACK workspace_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
+{
+    (void)lp;
+    switch (msg) {
+    case WM_INITDIALOG:
+        for (int k = 0; k < POSITIONS; k++) SendDlgItemMessageW(h, IDC_WS_POS, CB_ADDSTRING, 0, (LPARAM)POSITION_LABELS[k]);
+        for (int id = IDC_WS_X; id <= IDC_WS_H; id++) SendDlgItemMessageW(h, id, EM_LIMITTEXT, 3, 0);
+        if (!g_nmons) g_nmons = monitors_list(g_mons, 16);
+        g_app = g_set.appCount ? 0 : -1;
+        g_pages[PAGE_WORKSPACE] = h;
+        apps_fill(h);
+        app_fill_editor(h);
+        return TRUE;
+    case WM_COMMAND: {
+        if (g_filling) break;
+        int id = LOWORD(wp), code = HIWORD(wp);
+        App *a = g_app >= 0 && g_app < g_set.appCount ? &g_set.apps[g_app] : NULL;
+        switch (id) {
+        case IDC_WS_APPS:
+            if (code == LBN_SELCHANGE) {
+                g_app = (int)SendDlgItemMessageW(h, IDC_WS_APPS, LB_GETCURSEL, 0, 0);
+                app_fill_editor(h);
+            }
+            return TRUE;
+        case IDC_WS_ADD:
+            app_add(h);
+            return TRUE;
+        case IDC_WS_DEL:
+            if (!a) return TRUE;
+            MoveMemory(&g_set.apps[g_app], &g_set.apps[g_app + 1], (g_set.appCount - g_app - 1) * sizeof(App));
+            g_set.appCount--;
+            if (g_app >= g_set.appCount) g_app = g_set.appCount - 1;
+            apps_changed(h);
+            return TRUE;
+        case IDC_WS_UP: case IDC_WS_DOWN: {
+            int to = g_app + (id == IDC_WS_UP ? -1 : 1);
+            if (!a || to < 0 || to >= g_set.appCount) return TRUE;
+            App t = g_set.apps[to];
+            g_set.apps[to] = g_set.apps[g_app];
+            g_set.apps[g_app] = t;
+            g_app = to;
+            apps_changed(h);
+            return TRUE;
+        }
+        case IDC_WS_BROWSE: {
+            if (!a) return TRUE;
+            wchar_t file[MAX_PATH] = L"";
+            OPENFILENAMEW of = { sizeof of };
+            of.hwndOwner = h;
+            of.lpstrFilter = L"Programs\0*.exe;*.lnk;*.bat;*.cmd\0All files\0*.*\0";
+            of.lpstrFile = file;
+            of.nMaxFile = MAX_PATH;
+            of.Flags = OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+            if (!GetOpenFileNameW(&of)) return TRUE;
+            workspace_app_from_file(file, a);
+            apps_changed(h);
+            return TRUE;
+        }
+        case IDC_WS_PROGRAM: case IDC_WS_ARGS: case IDC_WS_TITLE:
+            if (!a || code != EN_CHANGE) return TRUE;
+            if (id == IDC_WS_PROGRAM) {
+                GetDlgItemTextW(h, id, a->command, ARRAYSIZE(a->command));
+                if (_wcsnicmp(a->command, L"shell:", 6))                   /* a program: its windows are its own */
+                    wcscpy_s(a->match, MAX_PATH, a->command);
+            } else if (id == IDC_WS_ARGS) GetDlgItemTextW(h, id, a->args, ARRAYSIZE(a->args));
+            else GetDlgItemTextW(h, id, a->title, ARRAYSIZE(a->title));
+            save_and_apply(0);
+            return TRUE;
+        case IDC_WS_MONITOR:
+            if (!a || code != CBN_SELCHANGE) return TRUE;
+            {
+                int sel = (int)SendDlgItemMessageW(h, IDC_WS_MONITOR, CB_GETCURSEL, 0, 0);
+                LRESULT k = SendDlgItemMessageW(h, IDC_WS_MONITOR, CB_GETITEMDATA, sel, 0);
+                if (k == -1) { a->monitor[0] = a->monitorName[0] = 0; }
+                else if (k >= 0 && k < g_nmons) {
+                    wcscpy_s(a->monitor, ARRAYSIZE(a->monitor), g_mons[k].path);
+                    wcscpy_s(a->monitorName, ARRAYSIZE(a->monitorName), g_mons[k].name);
+                }
+            }
+            save_and_apply(0);
+            apps_fill(h);
+            return TRUE;
+        case IDC_WS_POS:
+            if (!a || code != CBN_SELCHANGE) return TRUE;
+            a->pos = (int)SendDlgItemMessageW(h, IDC_WS_POS, CB_GETCURSEL, 0, 0);
+            apps_changed(h);
+            return TRUE;
+        case IDC_WS_CURRENT:
+            if (!a) return TRUE;
+            if (!workspace_use_current(a))
+                MessageBoxW(h, L"Open the app first, put its window where you want it, then click this again.",
+                            L"Use current position", MB_OK | MB_ICONINFORMATION);
+            else apps_changed(h);
+            return TRUE;
+        case IDC_WS_X: case IDC_WS_Y: case IDC_WS_W: case IDC_WS_H: {
+            if (!a) return TRUE;
+            int *v = id == IDC_WS_X ? &a->x : id == IDC_WS_Y ? &a->y : id == IDC_WS_W ? &a->w : &a->h;
+            BOOL ok;
+            UINT n = GetDlgItemInt(h, id, &ok, FALSE);
+            if (code == EN_CHANGE && ok && n <= 100 && (int)n != *v) {
+                *v = (int)n;
+                save_and_apply(0);
+                apps_fill(h);
+            } else if (code == EN_KILLFOCUS && (!ok || n > 100)) {
+                g_filling = TRUE;
+                SetDlgItemInt(h, id, *v, FALSE);
+                g_filling = FALSE;
+            }
+            return TRUE;
+        }
+        }
+        break;
+    }
+    }
+    return FALSE;
+}
+
 /* ---------------------------------------------------------------- Downloads tab ------------------------------- */
 
 static const int SORT_ORDER[DL_SORTS] = { DL_SORT_NAME, DL_SORT_KIND, DL_SORT_ADDED, DL_SORT_MODIFIED };  /* as on a Mac */
@@ -578,9 +824,9 @@ static INT_PTR CALLBACK main_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         SendMessageW(h, WM_SETICON, ICON_SMALL, (LPARAM)LoadImageW(g_inst, MAKEINTRESOURCEW(IDI_APP), IMAGE_ICON,
                      GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), 0));
         g_tab = GetDlgItem(h, IDC_TABS);
-        static const wchar_t *names[PAGES] = { L"Mouse", L"Hot Corners", L"Downloads" };
-        static const int ids[PAGES] = { IDD_PAGE_MOUSE, IDD_PAGE_CORNERS, IDD_PAGE_DOWNLOADS };
-        static const DLGPROC procs[PAGES] = { mouse_proc, corners_proc, downloads_proc };
+        static const wchar_t *names[PAGES] = { L"Mouse", L"Hot Corners", L"Downloads", L"Workspace" };
+        static const int ids[PAGES] = { IDD_PAGE_MOUSE, IDD_PAGE_CORNERS, IDD_PAGE_DOWNLOADS, IDD_PAGE_WORKSPACE };
+        static const DLGPROC procs[PAGES] = { mouse_proc, corners_proc, downloads_proc, workspace_proc };
         for (int k = 0; k < PAGES; k++) {
             TCITEMW ti = {0};
             ti.mask = TCIF_TEXT;
@@ -682,7 +928,8 @@ int settings_window_snapshots(HINSTANCE inst, const wchar_t *dir)
     ShowWindow(h, SW_SHOWNOACTIVATE);
     for (int i = 0; i < 300 && g_searching; i++) pump(100);   /* up to 30 s for the mouse search */
     pump(300);
-    static const wchar_t *names[PAGES] = { L"settings-mouse", L"settings-hot-corners", L"settings-downloads" };
+    static const wchar_t *names[PAGES] = { L"settings-mouse", L"settings-hot-corners", L"settings-downloads",
+                                           L"settings-workspace" };
     for (int k = 0; k < PAGES; k++) {
         TabCtrl_SetCurSel(g_tab, k);
         show_page(k);

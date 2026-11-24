@@ -4,6 +4,7 @@
  *   - Hot corner jig (hotcorner.c): rest the cursor in a screen corner to lock the PC, sleep, show the desktop...
  *   - Eject media jig (media.c): safely remove a USB drive or memory card from the tray menu.
  *   - Downloads jig (downloads.c): a Downloads button on each monitor's taskbar with the newest downloads.
+ *   - Workspace jig (workspace.c): one click starts the standard apps and puts their windows in place.
  * Right-click the tray icon for Settings (settingswnd.c), saved in %APPDATA%\Jig Rack\settings.ini (settings.c).
  *
  * Copyright (C) 2026 Jon Raiford
@@ -24,6 +25,7 @@
 #define ID_SETTINGS  1
 #define ID_EXIT      2
 #define ID_EJECT_ALL 3
+#define ID_WORKSPACE 4
 #define ID_EJECT     100                           /* + the drive's index in the menu's list */
 
 /* ---------------------------------------------------------------- log ----------------------------------------- */
@@ -98,8 +100,8 @@ static void add_tray(HWND hwnd)
     tray_refresh();
 }
 
-/* A notification from the tray icon (the eject result). */
-static void tray_notify(BOOL ok, const wchar_t *title, const wchar_t *text)
+/* A notification from the tray icon (an eject's result, apps that didn't open). */
+void tray_notify(BOOL ok, const wchar_t *title, const wchar_t *text)
 {
     if (!g_nid.cbSize) return;
     NOTIFYICONDATAW n = g_nid;
@@ -116,7 +118,11 @@ static void tray_menu(HWND hwnd)
     GetCursorPos(&pt);
     static Drive drives[MAX_DRIVES];
     int nd = media_list(drives, MAX_DRIVES);
-    HMENU m = CreatePopupMenu();                    /* the drives right in the menu: one click to eject */
+    HMENU m = CreatePopupMenu();
+    if (g_set.appCount) {
+        AppendMenuW(m, MF_STRING, ID_WORKSPACE, L"&Launch workspace");
+        AppendMenuW(m, MF_SEPARATOR, 0, NULL);
+    }                                               /* the drives right in the menu: one click to eject */
     for (int i = 0; i < nd; i++) AppendMenuW(m, MF_STRING, ID_EJECT + i, drives[i].label);
     if (nd > 1) AppendMenuW(m, MF_STRING, ID_EJECT_ALL, L"Eject &all");
     if (nd) AppendMenuW(m, MF_SEPARATOR, 0, NULL);
@@ -127,7 +133,8 @@ static void tray_menu(HWND hwnd)
     SetForegroundWindow(hwnd);
     int cmd = TrackPopupMenu(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, NULL);
     DestroyMenu(m);
-    if (cmd == ID_SETTINGS) settings_window_open(g_inst);
+    if (cmd == ID_WORKSPACE) workspace_launch(hwnd);
+    else if (cmd == ID_SETTINGS) settings_window_open(g_inst);
     else if (cmd == ID_EXIT) DestroyWindow(hwnd);
     else if (cmd == ID_EJECT_ALL || (cmd >= ID_EJECT && cmd < ID_EJECT + nd)) {
         const Drive *list = cmd == ID_EJECT_ALL ? drives : &drives[cmd - ID_EJECT];
@@ -178,6 +185,7 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_TIMER:
         if (wp == TIMER_CORNER) hotcorner_tick();
+        else if (wp == TIMER_WORKSPACE) workspace_tick();
         return 0;
     case WM_DISPLAYCHANGE:                                  /* monitor added, removed or rearranged */
         hotcorner_layout_changed();

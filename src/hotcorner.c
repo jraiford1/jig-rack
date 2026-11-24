@@ -712,6 +712,20 @@ static void test_settings_file(void)
     wcscpy_s(a.dlFolder, MAX_PATH, L"D:\\T\x00e9l\x00e9chargements");
     a.dlCount = 35;
     a.dlSort = DL_SORT_KIND;
+    a.appCount = 2;
+    wcscpy_s(a.apps[0].name, 64, L"Outlook");
+    wcscpy_s(a.apps[0].command, ARRAYSIZE(a.apps[0].command), L"shell:AppsFolder\\Microsoft.OutlookForWindows_8wekyb3d8bbwe!Microsoft.OutlookforWindows");
+    wcscpy_s(a.apps[0].match, MAX_PATH, L"C:\\Program Files\\WindowsApps\\Microsoft.OutlookForWindows\\olk.exe");
+    wcscpy_s(a.apps[0].monitor, 256, L"\\\\?\\DISPLAY#DELA1C4#5&1a2b3c&0&UID4357#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}");
+    wcscpy_s(a.apps[0].monitorName, 64, L"DELL U3223QE");
+    a.apps[0].pos = POS_CUSTOM;
+    a.apps[0].x = 5; a.apps[0].y = 0; a.apps[0].w = 95; a.apps[0].h = 50;
+    wcscpy_s(a.apps[1].name, 64, L"Google Chrome");
+    wcscpy_s(a.apps[1].command, ARRAYSIZE(a.apps[1].command), L"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe");
+    wcscpy_s(a.apps[1].match, MAX_PATH, a.apps[1].command);
+    wcscpy_s(a.apps[1].args, 256, L"--profile-directory=\"Profile 1\"");
+    wcscpy_s(a.apps[1].title, 64, L"LabWare 9");
+    a.apps[1].pos = POS_RIGHT_THIRD;
     a.ruleCount = 3;
     rule_defaults(&a.rules[1]);
     rule_defaults(&a.rules[2]);
@@ -728,7 +742,8 @@ static void test_settings_file(void)
                 wcscmp(a.deviceName, b.deviceName) == 0 && a.showMeter == b.showMeter && a.ruleCount == b.ruleCount &&
                 a.lowPercent == b.lowPercent && a.dlButton == b.dlButton && a.dlAllMonitors == b.dlAllMonitors &&
                 !wcscmp(a.dlIcon, b.dlIcon) && !wcscmp(a.dlFolder, b.dlFolder) && a.dlCount == b.dlCount &&
-                a.dlSort == b.dlSort &&
+                a.dlSort == b.dlSort && a.appCount == b.appCount &&
+                memcmp(a.apps, b.apps, a.appCount * sizeof(App)) == 0 &&
                 memcmp(a.rules, b.rules, sizeof a.rules) == 0;
     EXPECT(same, "settings file: saved and read back the same (3 rules, non-ASCII names)");
     a.ruleCount = 1;
@@ -865,6 +880,30 @@ static void test_downloads(void)
            downloads_command_id(L"rm -rf") == -1, "downloads: jump list commands");
 }
 
+/* Workspace: where each position puts a window, in a work area that doesn't start at 0,0. */
+static void test_workspace(void)
+{
+    RECT work = { 100, -3000, 5860, 240 }, r;               /* 5760 x 3240, above the main monitor */
+    struct { int pos, x, y, w, h; RECT want; const char *what; } c[] = {
+        { POS_MAXIMIZED, 0, 0, 0, 0, { 100, -3000, 5860, 240 }, "workspace: maximized is the whole work area" },
+        { POS_LEFT, 0, 0, 0, 0, { 100, -3000, 2980, 240 }, "workspace: left half" },
+        { POS_RIGHT, 0, 0, 0, 0, { 2980, -3000, 5860, 240 }, "workspace: right half" },
+        { POS_TOP, 0, 0, 0, 0, { 100, -3000, 5860, -1380 }, "workspace: top half" },
+        { POS_BOTTOM, 0, 0, 0, 0, { 100, -1380, 5860, 240 }, "workspace: bottom half" },
+        { POS_LEFT_THIRD, 0, 0, 0, 0, { 100, -3000, 2020, 240 }, "workspace: left third" },
+        { POS_MIDDLE_THIRD, 0, 0, 0, 0, { 2020, -3000, 3940, 240 }, "workspace: middle third" },
+        { POS_RIGHT_THIRD, 0, 0, 0, 0, { 3940, -3000, 5860, 240 }, "workspace: right third" },
+        { POS_CUSTOM, 25, 10, 50, 80, { 1540, -2676, 4420, -84 }, "workspace: custom 25%, 10%, 50% x 80%" },
+        { POS_CUSTOM, 90, 90, 50, 50, { 5284, -84, 5860, 240 }, "workspace: custom past the edge is cut to the work area" },
+    };
+    for (int k = 0; k < (int)ARRAYSIZE(c); k++) {
+        workspace_target(&work, c[k].pos, c[k].x, c[k].y, c[k].w, c[k].h, &r);
+        BOOL ok = EqualRect(&r, &c[k].want);
+        EXPECT(ok, c[k].what);
+        if (!ok) trace("  got %ld,%ld,%ld,%ld", r.left, r.top, r.right, r.bottom);
+    }
+}
+
 int hotcorner_selftest(void)
 {
     Settings saved = g_set;
@@ -878,6 +917,7 @@ int hotcorner_selftest(void)
     test_settings_file();
     test_media();
     test_downloads();
+    test_workspace();
     trace("selftest done: %d failure(s)", g_fails);
     g_set = saved;
     return g_fails;

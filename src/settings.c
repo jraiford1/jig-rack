@@ -22,6 +22,8 @@ static const wchar_t *ACTION_NAMES[ACTIONS] = { L"Lock the PC", L"Sleep", L"Turn
                                                  L"Task View", L"Run a command" };
 static const wchar_t *MOUSE_KEYS[MOUSE_TYPES] = { L"none", L"logitech" };
 static const wchar_t *SORT_KEYS[DL_SORTS] = { L"added", L"modified", L"name", L"kind" };
+static const wchar_t *POS_KEYS[POSITIONS] = { L"maximized", L"left", L"right", L"top", L"bottom", L"left-third",
+                                              L"middle-third", L"right-third", L"custom" };
 
 BOOL mouse_chosen(const Settings *s)
 {
@@ -124,6 +126,28 @@ void settings_load(Settings *s)
     get_str(L"Downloads", L"Sort", v, 64);
     s->dlSort = find_key(v, SORT_KEYS, DL_SORTS, DL_SORT_ADDED);
 
+    s->appCount = get_int(L"Workspace", L"Count", 0);
+    if (s->appCount < 0) s->appCount = 0;
+    if (s->appCount > MAX_APPS) s->appCount = MAX_APPS;
+    for (int i = 0; i < s->appCount; i++) {
+        App *a = &s->apps[i];
+        wchar_t sec[32];
+        swprintf_s(sec, 32, L"App%d", i + 1);
+        get_str(sec, L"Name", a->name, ARRAYSIZE(a->name));
+        get_str(sec, L"Command", a->command, ARRAYSIZE(a->command));
+        get_str(sec, L"Args", a->args, ARRAYSIZE(a->args));
+        get_str(sec, L"Match", a->match, ARRAYSIZE(a->match));
+        get_str(sec, L"Title", a->title, ARRAYSIZE(a->title));
+        get_str(sec, L"Monitor", a->monitor, ARRAYSIZE(a->monitor));
+        get_str(sec, L"MonitorName", a->monitorName, ARRAYSIZE(a->monitorName));
+        get_str(sec, L"Position", v, 64);
+        a->pos = find_key(v, POS_KEYS, POSITIONS, POS_MAXIMIZED);
+        a->x = get_int(sec, L"Left", 0);
+        a->y = get_int(sec, L"Top", 0);
+        a->w = get_int(sec, L"Width", 50);
+        a->h = get_int(sec, L"Height", 100);
+    }
+
     int n = get_int(L"HotCorners", L"Count", 0);
     if (n < 0) n = 0;
     if (n > MAX_RULES) n = MAX_RULES;
@@ -198,6 +222,25 @@ BOOL settings_save(const Settings *s)
     ok &= put(L"Downloads", L"Folder", s->dlFolder);
     ok &= put_int(L"Downloads", L"Count", s->dlCount);
     ok &= put(L"Downloads", L"Sort", SORT_KEYS[s->dlSort]);
+    ok &= put_int(L"Workspace", L"Count", s->appCount);
+    for (int i = 0; i < MAX_APPS; i++) {
+        wchar_t sec[32];
+        swprintf_s(sec, 32, L"App%d", i + 1);
+        if (i >= s->appCount) { WritePrivateProfileStringW(sec, NULL, NULL, g_file); continue; }   /* drop it */
+        const App *a = &s->apps[i];
+        ok &= put(sec, L"Name", a->name);
+        ok &= put(sec, L"Command", a->command);
+        ok &= put(sec, L"Args", a->args);
+        ok &= put(sec, L"Match", a->match);
+        ok &= put(sec, L"Title", a->title);
+        ok &= put(sec, L"Monitor", a->monitor);
+        ok &= put(sec, L"MonitorName", a->monitorName);
+        ok &= put(sec, L"Position", POS_KEYS[a->pos]);
+        ok &= put_int(sec, L"Left", a->x);
+        ok &= put_int(sec, L"Top", a->y);
+        ok &= put_int(sec, L"Width", a->w);
+        ok &= put_int(sec, L"Height", a->h);
+    }
     ok &= put_int(L"HotCorners", L"Count", s->ruleCount);
     for (int i = 0; i < MAX_RULES; i++) {
         wchar_t sec[32];

@@ -39,6 +39,21 @@ typedef struct {
     wchar_t command[512];       /* ACT_RUN */
 } Rule;
 
+#define MAX_APPS 16
+enum { POS_MAXIMIZED, POS_LEFT, POS_RIGHT, POS_TOP, POS_BOTTOM, POS_LEFT_THIRD, POS_MIDDLE_THIRD, POS_RIGHT_THIRD,
+       POS_CUSTOM, POSITIONS };
+typedef struct {                /* one of the workspace's apps */
+    wchar_t name[64];           /* "Google Chrome" */
+    wchar_t command[MAX_PATH + 64]; /* what to start: a program, or shell:AppsFolder\<app ID> for a Store app */
+    wchar_t args[256];
+    wchar_t match[MAX_PATH];    /* the program file its windows belong to (to find it when it's open) */
+    wchar_t title[64];          /* only a window whose title contains this; "" = any */
+    wchar_t monitor[256];       /* the monitor's device path; "" = the main monitor */
+    wchar_t monitorName[64];
+    int pos;                    /* POS_* */
+    int x, y, w, h;             /* POS_CUSTOM: % of the monitor's work area */
+} App;
+
 typedef struct {
     int mouseType;              /* MOUSE_* */
     WORD productId;             /* Logitech: USB product ID of the receiver (or wired mouse) the mouse is on; 0 = none */
@@ -54,6 +69,8 @@ typedef struct {
     wchar_t dlFolder[MAX_PATH]; /* "" = the Downloads folder */
     int dlCount;                /* how many of the newest items the panel shows */
     int dlSort;                 /* DL_SORT_* */
+    int appCount;               /* the workspace */
+    App apps[MAX_APPS];
 } Settings;
 enum { DL_SORT_ADDED, DL_SORT_MODIFIED, DL_SORT_NAME, DL_SORT_KIND, DL_SORTS };
 #define WM_DL_COMMAND (WM_APP + 5)       /* "--downloads <command>" (from the jump list) -> running copy: wp = DL_CMD_* */
@@ -117,6 +134,7 @@ typedef struct {
 } MonitorDesc;
 
 #define TIMER_CORNER 2
+#define TIMER_WORKSPACE 3
 int  monitors_list(MonitorDesc *out, int max);
 void hotcorner_init(HINSTANCE inst, HWND owner);
 void hotcorner_apply(void);                     /* g_set's rules changed, or the monitors did */
@@ -129,6 +147,7 @@ void hotcorner_write_previews(const wchar_t *dir);   /* --preview: the countdown
 /* ---------------------------------------------------------------- tray + settings window -------------------- */
 void tray_refresh(void);                        /* main.c: redraw the tray icon from g_set and the last reading */
 void settings_window_open(HINSTANCE inst);      /* settingswnd.c */
+void tray_notify(BOOL ok, const wchar_t *title, const wchar_t *text);   /* main.c: a notification from the tray icon */
 void settings_window_open_page(HINSTANCE inst, int page);   /* 0 Mouse, 1 Hot Corners, 2 Downloads */
 void settings_window_refresh(void);             /* settings changed elsewhere (the jump list): show them */
 HWND settings_window(void);
@@ -171,3 +190,14 @@ void downloads_jumplist(void);                       /* the button's right-click
 void downloads_command(int cmd);                     /* DL_CMD_*, in the running copy */
 int downloads_command_id(const wchar_t *name);       /* "sort-name" -> DL_CMD_SORT_NAME; -1 if unknown */
 extern const wchar_t *DL_SORT_LABELS[DL_SORTS];
+
+/* ---------------------------------------------------------------- Workspace (workspace.c) --------------------- */
+extern const wchar_t *POSITION_LABELS[POSITIONS];
+void workspace_launch(HWND owner);                   /* start the apps and place their windows */
+void workspace_tick(void);                           /* TIMER_WORKSPACE */
+void workspace_target(const RECT *work, int pos, int x, int y, int w, int h, RECT *out);
+HWND workspace_find(const App *a);                   /* the app's open window, or NULL */
+int  workspace_open_windows(HWND *out, int max);     /* open app windows, for "add from an open window" */
+void workspace_app_from_window(HWND w, App *a);
+void workspace_app_from_file(const wchar_t *path, App *a);
+BOOL workspace_use_current(App *a);                  /* its open window's place now; FALSE if it isn't open */

@@ -112,10 +112,36 @@ clicked. They have their own taskbar identity (AppUserModelID), so they never gr
 pinned, and have their own right-click menu (a jump list, whose entries run `JigRack.exe --downloads <command>`,
 which passes the command to the running copy). The folder is read only when the panel opens.
 
+### Workspace
+
+One click starts your standard apps and puts each window where you want it: right-click the tray icon and choose
+**Launch workspace**. An app that's already open isn't started again; its window is just moved into place.
+
+Set it up in **Settings → Workspace**: a list of apps, started in that order (**Up** and **Down** change it).
+**+** adds one, either from a window that's open now (it takes that app's program, monitor and current place) or
+from a program file. For each app:
+
+- **Program**: what to start: a program (`.exe`, a shortcut, a script), or `shell:AppsFolder\<app ID>` for a Store
+  app such as the new Outlook or Teams (filled in for you when you add it from its open window).
+- **Arguments** for it, and **Title contains** to pick one of its windows (for example one Chrome window of
+  several); empty means its top window.
+- **Monitor**: the main monitor or a particular one (remembered by its device path, like the hot corners; if it
+  isn't connected the app goes on the main monitor).
+- **Position**: maximized, the left or right half, the top or bottom half, a third (left, middle, right), or
+  custom: left, top, width and height in % of the monitor's work area. **Use current position** takes the app's
+  open window's place.
+
+Each started app's window is waited for (up to a minute) and placed as soon as it shows, then once more a moment
+later, after the app has restored its own last position and adapted to the monitor's scaling. The window's
+visible edge lines up with the target (Windows' invisible resize borders are allowed for). A window of an app
+running as administrator can't be moved by Jig Rack; the log says so. If an app doesn't open in time, a
+notification says which.
+
 ## Tray menu and settings
 
 The tray icon is the Jig Rack icon (a workshop pegboard with a wrench and a screwdriver), or the mouse battery
-meter if you've chosen to show it. Right-click it for **Eject** (one item per removable drive), **Settings…** and **Exit** (double-clicking the icon opens Settings too).
+meter if you've chosen to show it. Right-click it for **Launch workspace** (once there are apps on the Workspace tab), **Eject** (one item per
+removable drive), **Settings…** and **Exit** (double-clicking the icon opens Settings too).
 
 **Settings** opens a window with a tab for each jig. Every change is saved and takes effect at once; there's
 nothing to apply and no restart. The settings live in `%APPDATA%\Jig Rack\settings.ini` (UTF-16, written by the
@@ -147,6 +173,7 @@ builds again.
 | `src\hotcorner.c` | The hot corner jig, its countdown and its self-test |
 | `src\media.c` | The eject media jig |
 | `src\downloads.c` | The Downloads jig: the taskbar buttons, the panel and the right-click menu |
+| `src\workspace.c` | The Workspace jig: starting the apps and placing their windows |
 | `src\icons.c` | The tray icons (GDI+), previews and the `.ico` |
 
 ## Install
@@ -166,7 +193,7 @@ ran) `HKCU\Software\JigRack`.
 
 | Command | What it does |
 |---|---|
-| `JigRack.exe --selftest <log file>` | Runs the hot corner rules on scripted cursor timelines against your real monitor layout, a settings-file round trip, the eject menu's text and the Downloads panel's choice and order of items (in a scratch folder), and writes the results to the log. Never acts. Expect `0 failure(s)`. |
+| `JigRack.exe --selftest <log file>` | Runs the hot corner rules on scripted cursor timelines against your real monitor layout, a settings-file round trip, the eject menu's text, the Downloads panel's choice and order of items (in a scratch folder) and where each Workspace position puts a window, and writes the results to the log. Never acts. Expect `0 failure(s)`. |
 | `JigRack.exe --preview <folder>` | Writes the tray icons and the countdown overlay (with and without the battery warning) as PNGs and exits. |
 | `JigRack.exe --demo-countdown` | Shows the countdown at the first rule's corner, without any action. |
 | `JigRack.exe --snap-settings <folder>` | Opens the Settings window off-screen and saves each tab as a PNG. |

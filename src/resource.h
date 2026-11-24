@@ -5,6 +5,7 @@
 #define IDD_PAGE_MOUSE          101
 #define IDD_PAGE_CORNERS        102
 #define IDD_PAGE_DOWNLOADS      103
+#define IDD_PAGE_WORKSPACE      104
 
 #define IDC_TABS                1000
 
@@ -46,3 +47,32 @@
 #define IDC_DL_COUNTLABEL       1312
 #define IDC_DL_COUNTNOTE        1313
 #define IDC_DL_DEFFOLDER        1314
+
+#define IDC_WS_APPS             1400
+#define IDC_WS_ADD              1401
+#define IDC_WS_DEL              1402
+#define IDC_WS_UP               1403
+#define IDC_WS_DOWN             1404
+#define IDC_WS_GROUP            1405
+#define IDC_WS_PROGRAM          1406
+#define IDC_WS_BROWSE           1407
+#define IDC_WS_ARGS             1408
+#define IDC_WS_TITLE            1409
+#define IDC_WS_MONITOR          1410
+#define IDC_WS_POS              1411
+#define IDC_WS_CURRENT          1412
+#define IDC_WS_X                1413
+#define IDC_WS_Y                1414
+#define IDC_WS_W                1415
+#define IDC_WS_H                1416
+#define IDC_WS_L1               1420
+#define IDC_WS_L2               1421
+#define IDC_WS_L3               1422
+#define IDC_WS_L4               1423
+#define IDC_WS_L5               1424
+#define IDC_WS_L6               1425
+#define IDC_WS_L7               1426
+#define IDC_WS_L8               1427
+#define IDC_WS_L9               1428
+#define IDC_WS_L10              1429
+#define IDC_WS_NOTE             1430
